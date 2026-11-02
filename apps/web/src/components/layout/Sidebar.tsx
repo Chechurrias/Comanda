@@ -5,7 +5,6 @@ import {
   Building2,
   KeyRound,
   LogOut,
-  QrCode,
   ShieldAlert,
   Smartphone,
   UserRound
@@ -17,7 +16,6 @@ import { supabase } from '@/lib/supabase';
 
 const NAVIGATION_ITEMS = [
   { name: 'Restaurantes (Tenants)', href: '/tenants', icon: Building2 },
-  { name: 'Códigos de Activación', href: '/activations', icon: QrCode }, // <-- Nueva ruta
   { name: 'Operadores', href: '/operators', icon: UserRound },
   { name: 'Planes y Licencias', href: '/licenses', icon: KeyRound },
   { name: 'Distribución APK', href: '/apk-releases', icon: Smartphone },

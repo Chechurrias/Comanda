@@ -4,7 +4,7 @@ export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   // Solo proteger las páginas privadas de administración
-  const isProtectedAdminRoute = pathname.startsWith('/tenants') || pathname.startsWith('/activations');
+  const isProtectedAdminRoute = pathname.startsWith('/tenants');
 
   if (isProtectedAdminRoute) {
     // Verificar si el operador tiene cookie de sesión en Supabase
@@ -19,7 +19,7 @@ export function middleware(request: NextRequest) {
   return NextResponse.next();
 }
 
-// Configuración estricta: Solo interceptar tenants y activations
+// Configuración estricta: Solo interceptar tenants
 export const config = {
-  matcher: ['/tenants/:path*', '/activations/:path*'],
+  matcher: ['/tenants/:path*'],
 };

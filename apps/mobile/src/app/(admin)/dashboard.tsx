@@ -178,9 +178,9 @@ try {
             <View style={styles.cardIconBox}>
               <Text style={styles.cardIcon}>👥</Text>
             </View>
-            <Text style={styles.cardTitle}>Conexión e Ingreso de Meseros</Text>
+            <Text style={styles.cardTitle}>Gestión de Meseros</Text>
             <Text style={styles.cardSubtitle}>
-              Alta de meseros, asignación de PIN de 4 dígitos y control de cupos.
+              Crea meseros, asigna PIN de 4 dígitos, cambia sus roles y activa o pausa su acceso.
             </Text>
             <View style={styles.cardFooter}>
               <Text style={styles.cardCounter}>{staffCount} Meseros autorizados</Text>

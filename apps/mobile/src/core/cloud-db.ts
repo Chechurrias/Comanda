@@ -182,13 +182,18 @@ export const cloudDbService = {
     return data || [];
   },
 
-  createWaiter: async (tenantId: string, fullName: string, pinCode: string) => {
+  createWaiter: async (
+    tenantId: string,
+    fullName: string,
+    pinCode: string,
+    role: 'waiter_basic' | 'waiter_advanced'
+  ) => {
     const { data, error } = await supabase
       .from('restaurant_staff')
       .insert({
         tenant_id: tenantId,
         full_name: fullName.trim(),
-        role: 'waiter_basic',
+        role,
         pin_code: pinCode.trim(),
         is_active: true, // Nace activo
       })
@@ -208,6 +213,14 @@ export const cloudDbService = {
     const { error } = await supabase
       .from('restaurant_staff')
       .update({ is_active: nextStatus })
+      .eq('id', staffId);
+    if (error) throw error;
+  },
+
+  updateStaffRole: async (staffId: string, role: 'waiter_basic' | 'waiter_advanced') => {
+    const { error } = await supabase
+      .from('restaurant_staff')
+      .update({ role })
       .eq('id', staffId);
     if (error) throw error;
   },

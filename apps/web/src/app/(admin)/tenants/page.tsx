@@ -16,7 +16,6 @@ import {
   X,
   XCircle
 } from 'lucide-react';
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 
 interface TenantDetail {
@@ -343,7 +342,6 @@ export default function TenantsManagementPage() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       
-      {/* El alta oficial ocurre desde la consola de activaciones */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-2 border-b border-slate-800/80">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
@@ -356,13 +354,6 @@ export default function TenantsManagementPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Link
-            href="/activations"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold transition-colors"
-          >
-            <Smartphone className="w-3.5 h-3.5" />
-            Registrar cliente
-          </Link>
           <button 
             onClick={loadTenantsData}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium border border-slate-700/60 transition-colors"
