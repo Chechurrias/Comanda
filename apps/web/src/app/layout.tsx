@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import ClientWrapper from './ClientWrapper';
 
 export const metadata: Metadata = {
   title: 'Comanda | Mesas, menú y pedidos en un solo lugar',
@@ -14,7 +15,7 @@ export default function RootLayout({
   return (
     <html lang="es">
       <body className="bg-slate-950 text-slate-100 antialiased font-sans">
-        {children}
+        <ClientWrapper>{children}</ClientWrapper>
       </body>
     </html>
   );
