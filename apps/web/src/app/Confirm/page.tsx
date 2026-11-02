@@ -1,8 +1,23 @@
 'use client';
 
+import { supabase } from '@/lib/supabase'; // Asegúrate de que esta ruta apunte a tu cliente de Supabase
 import { CheckCircle2, Smartphone } from 'lucide-react';
+import { useEffect } from 'react';
 
 export default function EmailConfirmedPage() {
+  useEffect(() => {
+    // Cuando la página carga, Supabase lee silenciosamente la URL de confirmación
+    // y guarda la sesión del usuario en el navegador de manera segura.
+    const procesarLogin = async () => {
+      try {
+        await supabase.auth.getSession();
+      } catch (error) {
+        console.error('Error al procesar la sesión:', error);
+      }
+    };
+    procesarLogin();
+  }, []);
+
   return (
     <div className="min-h-screen bg-[#020617] flex items-center justify-center p-6 text-slate-100">
       <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-8 text-center space-y-6 shadow-2xl">
