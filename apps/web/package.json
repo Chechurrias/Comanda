@@ -27,6 +27,6 @@
     "typescript": "^5"
   },
   "optionalDependencies": {
-    "@next/swc-win32-x64-msvc": "^16.4.3"
+    "@next/swc-win32-x64-msvc": "^14.2.0"
   }
 }
