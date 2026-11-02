@@ -1,3 +1,5 @@
+'use client';
+
 // Reemplaza la línea 1:
 // import { Sidebar } from '@/components/layout/Sidebar';
 
