@@ -1,9 +1,6 @@
 'use client';
 
-// Reemplaza la línea 1:
-// import { Sidebar } from '@/components/layout/Sidebar';
-
-// Por esta ruta relativa:
+// ruta relativa:
 import React from 'react';
 import { Sidebar } from '../../components/layout/Sidebar';
 

@@ -2,8 +2,8 @@
   "version": 1,
   "functions": {
     "/api/admin/activate-tenant": {},
-    "/api/admin/tenants/[tenantId]/details": {},
+    "/api/auth/bootstrap": {},
     "/api/admin/operators": {},
-    "/api/auth/bootstrap": {}
+    "/api/admin/tenants/[tenantId]/details": {}
   }
 }

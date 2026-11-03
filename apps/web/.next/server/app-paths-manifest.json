@@ -1,15 +1,15 @@
 {
-  "/api/auth/session/route": "app/api/auth/session/route.js",
   "/_not-found/page": "app/_not-found/page.js",
-  "/api/admin/activate-tenant/route": "app/api/admin/activate-tenant/route.js",
+  "/api/auth/session/route": "app/api/auth/session/route.js",
   "/api/auth/bootstrap/route": "app/api/auth/bootstrap/route.js",
+  "/api/admin/activate-tenant/route": "app/api/admin/activate-tenant/route.js",
   "/api/admin/operators/route": "app/api/admin/operators/route.js",
   "/api/admin/tenants/[tenantId]/details/route": "app/api/admin/tenants/[tenantId]/details/route.js",
-  "/Confirm/page": "app/Confirm/page.js",
-  "/change-password/page": "app/change-password/page.js",
   "/page": "app/page.js",
-  "/login/page": "app/login/page.js",
+  "/Confirm/page": "app/Confirm/page.js",
   "/setup/page": "app/setup/page.js",
+  "/login/page": "app/login/page.js",
+  "/change-password/page": "app/change-password/page.js",
   "/(admin)/operators/page": "app/(admin)/operators/page.js",
   "/(admin)/tenants/page": "app/(admin)/tenants/page.js"
 }
