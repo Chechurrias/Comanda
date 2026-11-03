@@ -1,6 +1,8 @@
 import { useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
+    ActivityIndicator,
+    Alert,
     FlatList,
     ScrollView,
     StyleSheet,
@@ -9,16 +11,24 @@ import {
     View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { localDbService } from '../../core/database';
+import { authSession } from '../../core/auth-session';
+import { cloudDbService } from '../../core/cloud-db';
 
 type TabOption = 'general' | 'productos' | 'facturas';
+
+const formatDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 export default function ReportsScreen() {
   const router = useRouter();
 
   // Fecha seleccionada (por defecto hoy en formato YYYY-MM-DD)
   const [selectedDate, setSelectedDate] = useState(() => {
-    return new Date().toLocaleDateString('en-CA');
+    return formatDate(new Date());
   });
 
   // Pestaña activa: 'general' | 'productos' | 'facturas'
@@ -29,32 +39,56 @@ export default function ReportsScreen() {
   const [paymentMethods, setPaymentMethods] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Factura expandida para ver su detalle
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
 
-  const loadReportData = useCallback((dateStr: string) => {
-    setSummary(localDbService.getDailySalesSummary(dateStr));
-    setPaymentMethods(localDbService.getSalesByPaymentMethod(dateStr));
-    setProducts(localDbService.getTopSellingItems(dateStr, 100));
-    setInvoices(localDbService.getPaidOrdersHistory(dateStr));
-  }, []);
+  useEffect(() => {
+    let active = true;
+    const fetchReport = async () => {
+      try {
+        const user = await authSession.getUser();
+        if (!user?.tenant_id || user.role !== 'restaurant_admin') {
+          throw new Error('Inicia sesión como administrador para consultar los reportes.');
+        }
 
-  // Carga inicial y al cambiar fecha
-  useState(() => {
-    loadReportData(selectedDate);
-  });
+        const report = await cloudDbService.getDailySalesReport(user.tenant_id, selectedDate) as {
+          summary?: { total_sales: number; orders_count: number; average_ticket: number };
+          payment_methods?: any[];
+          products?: any[];
+          invoices?: any[];
+        } | null;
+        if (!report) throw new Error('El servidor no devolvió el reporte solicitado.');
+        if (!active) return;
+
+        setSummary(report.summary || { total_sales: 0, orders_count: 0, average_ticket: 0 });
+        setPaymentMethods(report.payment_methods || []);
+        setProducts(report.products || []);
+        setInvoices(report.invoices || []);
+      } catch (error: any) {
+        if (active) Alert.alert('No se pudo cargar el reporte', error.message || 'Intenta de nuevo.');
+      } finally {
+        if (active) setIsLoading(false);
+      }
+    };
+
+    void fetchReport();
+    return () => {
+      active = false;
+    };
+  }, [selectedDate]);
 
   // Navegación de fechas (Día anterior / Día siguiente)
   const changeDate = (days: number) => {
     const current = new Date(selectedDate + 'T12:00:00');
     current.setDate(current.getDate() + days);
-    const newDateStr = current.toLocaleDateString('en-CA');
+    const newDateStr = formatDate(current);
+    setIsLoading(true);
     setSelectedDate(newDateStr);
-    loadReportData(newDateStr);
   };
 
-  const isToday = selectedDate === new Date().toLocaleDateString('en-CA');
+  const isToday = selectedDate === formatDate(new Date());
 
   return (
     <SafeAreaView style={styles.container}>
@@ -87,7 +121,7 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Barra de Pestañas (General | Productos | Facturas) */}
+      {/* Barra de pestañas de ventas */}
       <View style={styles.tabsBar}>
         <TouchableOpacity
           style={[styles.tabItem, activeTab === 'general' && styles.tabItemActive]}
@@ -112,10 +146,14 @@ export default function ReportsScreen() {
           onPress={() => setActiveTab('facturas')}
         >
           <Text style={[styles.tabText, activeTab === 'facturas' && styles.tabTextActive]}>
-            Facturas ({invoices.length})
+            Cuentas ({invoices.length})
           </Text>
         </TouchableOpacity>
       </View>
+
+      {isLoading && (
+        <ActivityIndicator style={styles.reportLoading} color="#818cf8" />
+      )}
 
       {/* ======================================================== */}
       {/* VISTA 1: GENERAL                                         */}
@@ -129,7 +167,7 @@ export default function ReportsScreen() {
             
             <View style={styles.kpiRow}>
               <View style={styles.subKpi}>
-                <Text style={styles.subKpiLabel}>Facturas Pagadas</Text>
+                <Text style={styles.subKpiLabel}>Cuentas Pagadas</Text>
                 <Text style={styles.subKpiValue}>{summary.orders_count}</Text>
               </View>
               
@@ -189,7 +227,7 @@ export default function ReportsScreen() {
       {activeTab === 'facturas' && (
         <View style={{ flex: 1 }}>
           {invoices.length === 0 ? (
-            <Text style={styles.emptyNotice}>No hay facturas cerradas en esta fecha.</Text>
+            <Text style={styles.emptyNotice}>No hay cuentas pagadas en esta fecha.</Text>
           ) : (
             <FlatList
               data={invoices}
@@ -246,6 +284,7 @@ export default function ReportsScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#020617' },
+  reportLoading: { marginVertical: 8 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',

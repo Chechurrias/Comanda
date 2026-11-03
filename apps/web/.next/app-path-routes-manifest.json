@@ -1,0 +1,14 @@
+{
+  "/api/auth/session/route": "/api/auth/session",
+  "/_not-found/page": "/_not-found",
+  "/api/admin/activate-tenant/route": "/api/admin/activate-tenant",
+  "/api/admin/operators/route": "/api/admin/operators",
+  "/api/auth/bootstrap/route": "/api/auth/bootstrap",
+  "/Confirm/page": "/Confirm",
+  "/setup/page": "/setup",
+  "/change-password/page": "/change-password",
+  "/login/page": "/login",
+  "/page": "/",
+  "/(admin)/operators/page": "/operators",
+  "/(admin)/tenants/page": "/tenants"
+}

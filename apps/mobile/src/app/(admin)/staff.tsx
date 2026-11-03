@@ -27,11 +27,11 @@ export default function StaffManagementScreen() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [fullName, setFullName] = useState('');
   const [pinCode, setPinCode] = useState('');
-  const [role, setRole] = useState<'waiter_basic' | 'waiter_advanced'>('waiter_basic');
   const [isSaving, setIsSaving] = useState(false);
-
-  // Visualizar PIN temporalmente
-  const [showPin, setShowPin] = useState<{ [id: string]: boolean }>({});
+  const [resetTarget, setResetTarget] = useState<any>(null);
+  const [resetPin, setResetPin] = useState('');
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const [isResettingPin, setIsResettingPin] = useState(false);
 
   const loadStaff = useCallback(async (tenantId: string) => {
     try {
@@ -66,7 +66,42 @@ export default function StaffManagementScreen() {
     setPinCode(random);
   };
 
+  const openResetPin = (staff: any) => {
+    setResetTarget(staff);
+    setResetPin('');
+    setIsResetModalOpen(true);
+  };
+
+  const handleResetPin = async () => {
+    if (!sessionUser?.tenant_id || !resetTarget) return;
+    if (!/^\d{4}$/.test(resetPin)) {
+      Alert.alert('PIN Inválido', 'El PIN debe ser exactamente de 4 dígitos numéricos.');
+      return;
+    }
+
+    setIsResettingPin(true);
+    try {
+      await cloudDbService.resetWaiterPin(sessionUser.tenant_id, resetTarget.id, resetPin);
+      setIsResetModalOpen(false);
+      Alert.alert(
+        'PIN Restablecido',
+        `Nuevo PIN de ${resetTarget.full_name}: ${resetPin}\nCompártelo con el mesero. No se podrá volver a consultar.`
+      );
+      setResetPin('');
+      setResetTarget(null);
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'No se pudo restablecer el PIN.');
+    } finally {
+      setIsResettingPin(false);
+    }
+  };
+
   const handleCreateWaiter = async () => {
+    if (!sessionUser?.tenant_id) {
+      Alert.alert('Sesión no disponible', 'Vuelve a iniciar sesión para administrar los meseros.');
+      return;
+    }
+
     if (!fullName.trim()) {
       Alert.alert('Campo requerido', 'Ingresa el nombre del mesero.');
       return;
@@ -78,14 +113,13 @@ export default function StaffManagementScreen() {
 
     setIsSaving(true);
     try {
-      await cloudDbService.createWaiter(sessionUser.tenant_id, fullName, pinCode, role);
+      await cloudDbService.createWaiter(sessionUser.tenant_id, fullName, pinCode);
       Alert.alert(
         'Mesero Creado',
         `Mesero: ${fullName.trim()}\nPIN: ${pinCode}\nCódigo de Sala: ${restaurantSlug}\n\nEl mesero usará estos 3 datos para iniciar turno.`
       );
       setFullName('');
       setPinCode('');
-      setRole('waiter_basic');
       setIsAddModalOpen(false);
       loadStaff(sessionUser.tenant_id);
     } catch (err: any) {
@@ -101,16 +135,7 @@ export default function StaffManagementScreen() {
       await cloudDbService.toggleStaffStatus(staff.id, nextStatus);
       setStaffList(prev => prev.map(s => s.id === staff.id ? { ...s, is_active: nextStatus } : s));
     } catch (err: any) {
-      Alert.alert('Error', 'No se pudo actualizar el estado del mesero.');
-    }
-  };
-
-  const handleChangeRole = async (staff: any, nextRole: 'waiter_basic' | 'waiter_advanced') => {
-    try {
-      await cloudDbService.updateStaffRole(staff.id, nextRole);
-      setStaffList(prev => prev.map(s => s.id === staff.id ? { ...s, role: nextRole } : s));
-    } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo actualizar el rol del mesero.');
+      Alert.alert('Error', err.message || 'No se pudo actualizar el estado del mesero.');
     }
   };
 
@@ -128,7 +153,7 @@ export default function StaffManagementScreen() {
               await cloudDbService.deleteStaff(staff.id);
               loadStaff(sessionUser.tenant_id);
             } catch (err: any) {
-              Alert.alert('Error', 'No se pudo eliminar.');
+              Alert.alert('Error', err.message || 'No se pudo eliminar el mesero.');
             }
           },
         },
@@ -136,7 +161,7 @@ export default function StaffManagementScreen() {
     );
   };
 
-  const activeWaiters = staffList.filter(s => s.role?.startsWith('waiter') && s.is_active);
+  const activeWaiters = staffList.filter(s => s.role === 'waiter_basic' && s.is_active);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -189,14 +214,13 @@ export default function StaffManagementScreen() {
         </View>
       ) : (
         <FlatList
-          data={staffList.filter(s => s.role?.startsWith('waiter'))}
+          data={staffList.filter(s => s.role === 'waiter_basic')}
           keyExtractor={item => item.id}
           contentContainerStyle={styles.listContent}
           ListEmptyComponent={
             <Text style={styles.emptyText}>No hay meseros registrados. Registra al primero con el botón superior.</Text>
           }
           renderItem={({ item }) => {
-            const isPinVisible = showPin[item.id] || false;
             return (
               <View style={[styles.card, !item.is_active && styles.cardInactive]}>
                 <View style={styles.cardInfo}>
@@ -209,41 +233,13 @@ export default function StaffManagementScreen() {
                     </View>
                   </View>
 
-                  <TouchableOpacity 
-                    style={styles.pinContainer}
-                    onPress={() => setShowPin(prev => ({ ...prev, [item.id]: !isPinVisible }))}
-                  >
-                    <Text style={styles.pinLabel}>PIN: </Text>
-                    <Text style={styles.pinText}>{isPinVisible ? item.pin_code : '••••'}</Text>
-                    <Text style={{ fontSize: 11 }}>{isPinVisible ? ' 👁️' : ' 🔒'}</Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.roleRow}>
-                    <Text style={styles.roleLabel}>Rol</Text>
-                    {(['waiter_basic', 'waiter_advanced'] as const).map(option => {
-                      const isSelected = item.role === option;
-                      return (
-                        <TouchableOpacity
-                          key={option}
-                          style={[styles.roleOption, isSelected && styles.roleOptionActive]}
-                          onPress={() => {
-                            if (!isSelected) void handleChangeRole(item, option);
-                          }}
-                          disabled={isSelected}
-                          accessibilityRole="button"
-                          accessibilityState={{ selected: isSelected }}
-                        >
-                          <Text style={[styles.roleOptionText, isSelected && styles.roleOptionTextActive]}>
-                            {option === 'waiter_basic' ? 'Básico' : 'Avanzado'}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
                 </View>
 
                 {/* Acciones */}
                 <View style={styles.cardActions}>
+                  <TouchableOpacity style={styles.resetPinBtn} onPress={() => openResetPin(item)}>
+                    <Text style={styles.resetPinBtnText}>PIN</Text>
+                  </TouchableOpacity>
                   <Switch
                     value={item.is_active}
                     onValueChange={() => void handleToggleActive(item)}
@@ -295,32 +291,51 @@ export default function StaffManagementScreen() {
               onChangeText={setPinCode}
             />
 
-            <Text style={styles.inputLabel}>Rol del Mesero</Text>
-            <View style={styles.rolePicker}>
-              {(['waiter_basic', 'waiter_advanced'] as const).map(option => {
-                const isSelected = role === option;
-                return (
-                  <TouchableOpacity
-                    key={option}
-                    style={[styles.roleOption, styles.rolePickerOption, isSelected && styles.roleOptionActive]}
-                    onPress={() => setRole(option)}
-                    accessibilityRole="button"
-                    accessibilityState={{ selected: isSelected }}
-                  >
-                    <Text style={[styles.roleOptionText, isSelected && styles.roleOptionTextActive]}>
-                      {option === 'waiter_basic' ? 'Mesero básico' : 'Mesero avanzado'}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
             <View style={styles.modalButtons}>
               <TouchableOpacity style={styles.btnCancel} onPress={() => setIsAddModalOpen(false)}>
                 <Text style={styles.btnCancelText}>Cancelar</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.btnConfirm} onPress={handleCreateWaiter} disabled={isSaving}>
+              <TouchableOpacity style={styles.btnConfirm} onPress={() => void handleCreateWaiter()} disabled={isSaving}>
                 <Text style={styles.btnConfirmText}>{isSaving ? 'Guardando...' : 'Crear Mesero'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={isResetModalOpen} transparent animationType="slide">
+        <View style={styles.modalBg}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Restablecer PIN</Text>
+            <Text style={styles.modalSub}>
+              Asigna un PIN nuevo para {resetTarget?.full_name}. El PIN anterior no se puede recuperar.
+            </Text>
+            <Text style={styles.inputLabel}>Nuevo PIN de 4 dígitos *</Text>
+            <TextInput
+              style={[styles.input, styles.pinInput]}
+              keyboardType="numeric"
+              maxLength={4}
+              value={resetPin}
+              onChangeText={setResetPin}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.btnCancel}
+                onPress={() => {
+                  setIsResetModalOpen(false);
+                  setResetPin('');
+                  setResetTarget(null);
+                }}
+                disabled={isResettingPin}
+              >
+                <Text style={styles.btnCancelText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.btnConfirm}
+                onPress={() => void handleResetPin()}
+                disabled={isResettingPin}
+              >
+                <Text style={styles.btnConfirmText}>{isResettingPin ? 'Guardando...' : 'Restablecer PIN'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -377,16 +392,10 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 9, fontWeight: 'bold' },
   badgeActiveText: { color: '#34d399' },
   badgeInactiveText: { color: '#94a3b8' },
-  pinContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 6 },
-  pinLabel: { color: '#64748b', fontSize: 11 },
-  pinText: { color: '#38bdf8', fontSize: 14, fontWeight: 'bold', letterSpacing: 2 },
   roleRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 10 },
-  roleLabel: { color: '#64748b', fontSize: 11, marginRight: 2 },
-  roleOption: { paddingVertical: 5, paddingHorizontal: 9, borderRadius: 8, borderWidth: 1, borderColor: '#334155', backgroundColor: '#020617' },
-  roleOptionActive: { backgroundColor: '#1e1b4b', borderColor: '#4f46e5' },
-  roleOptionText: { color: '#94a3b8', fontSize: 10, fontWeight: '600' },
-  roleOptionTextActive: { color: '#c7d2fe' },
   cardActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  resetPinBtn: { paddingVertical: 6, paddingHorizontal: 8, backgroundColor: '#1e1b4b', borderRadius: 6 },
+  resetPinBtnText: { color: '#a5b4fc', fontSize: 11, fontWeight: 'bold' },
   deleteBtn: { padding: 6 },
 
   modalBg: { flex: 1, backgroundColor: '#00000095', justifyContent: 'center', padding: 20 },
@@ -397,8 +406,6 @@ const styles = StyleSheet.create({
   randomPinLink: { color: '#818cf8', fontSize: 11, fontWeight: 'bold' },
   input: { backgroundColor: '#020617', borderWidth: 1, borderColor: '#334155', borderRadius: 10, paddingHorizontal: 14, paddingVertical: 10, color: '#ffffff', fontSize: 14, marginBottom: 12 },
   pinInput: { fontSize: 22, fontWeight: 'bold', letterSpacing: 8, textAlign: 'center' },
-  rolePicker: { flexDirection: 'row', gap: 8, marginBottom: 8 },
-  rolePickerOption: { flex: 1, alignItems: 'center', paddingVertical: 10 },
   modalButtons: { flexDirection: 'row', gap: 10, marginTop: 6 },
   btnCancel: { flex: 1, paddingVertical: 12, alignItems: 'center', backgroundColor: '#1e293b', borderRadius: 10 },
   btnCancelText: { color: '#94a3b8', fontSize: 13, fontWeight: '600' },

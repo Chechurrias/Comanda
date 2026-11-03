@@ -1,12 +1,11 @@
 import * as Linking from 'expo-linking';
 import { useRouter } from 'expo-router';
 import * as WebBrowser from 'expo-web-browser';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Image,
-    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -17,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../core/api/supabase';
 import { authSession } from '../../core/auth-session';
+import { deviceStorage } from '../../core/storage';
 
 const RESTAURANT_HERO_IMAGE = require('../../../assets/images/watermarked_img_16088531156329847148.jpg');
 
@@ -27,7 +27,7 @@ export default function AdminLoginScreen() {
 
   // Estados Formulario Simple
   const [restaurantName, setRestaurantName] = useState('');
-  const [adminName, setAdminName] = useState(''); // 👈 ¡Estado agregado correctamente!
+  const [adminName, setAdminName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
 
@@ -38,25 +38,54 @@ export default function AdminLoginScreen() {
   const [showEmailSection, setShowEmailSection] = useState(false);
   const [emailMode, setEmailMode] = useState<'login' | 'signup'>('login');
 
-  // Guardar Sesión de Administrador
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadRememberedEmail = async () => {
+      try {
+        const savedEmail = await deviceStorage.get('admin_login_email');
+        if (isMounted && savedEmail) {
+          setEmail(savedEmail);
+          setShowEmailSection(true);
+        }
+      } catch (error) {
+        console.warn('[AdminLogin] No se pudo recuperar el correo guardado:', error);
+      }
+    };
+
+    void loadRememberedEmail();
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const rememberEmail = async (emailAddress: string) => {
+    const normalizedEmail = emailAddress.trim().toLowerCase();
+    if (!normalizedEmail) return;
+
+    try {
+      await deviceStorage.set('admin_login_email', normalizedEmail);
+    } catch (error) {
+      console.warn('[AdminLogin] No se pudo guardar el correo:', error);
+    }
+  };
+
   // RESOLVER Y GUARDAR SESIÓN DE ADMINISTRADOR DE FORMA SEGURA
   const completeAdminSession = async (user: any) => {
     try {
       setIsLoading(true);
+      if (user.email) await rememberEmail(user.email);
 
-      // Llamar a la función del servidor que no es bloqueada por RLS
       const { data, error } = await supabase.rpc('get_my_admin_session');
 
       if (error) throw error;
 
       if (data && data.success) {
-        // ✅ Restaurante encontrado: Guardar sesión y entrar directo al Dashboard
         await authSession.saveUser(data);
         router.replace('/(admin)/dashboard');
         return;
       }
 
-      // Si es un usuario de Google nuevo que de verdad no tiene restaurante
       Alert.alert(
         'Bienvenido a Comanda Cloud',
         `Hola ${user.user_metadata?.full_name || user.email}. Para comenzar tu primera vez, ingresa el nombre de tu restaurante.`,
@@ -133,6 +162,7 @@ export default function AdminLoginScreen() {
     setIsLoading(true);
     setLoadingProvider('email');
     try {
+      await rememberEmail(email);
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim().toLowerCase(),
         password: password.trim(),
@@ -166,7 +196,6 @@ export default function AdminLoginScreen() {
     setIsLoading(true);
     setLoadingProvider('email');
     try {
-      // 1. Auth SignUp
       const { data: signUpData, error: signUpErr } = await supabase.auth.signUp({
         email: email.trim().toLowerCase(),
         password: password.trim(),
@@ -185,7 +214,6 @@ export default function AdminLoginScreen() {
         throw new Error('No se pudo generar la cuenta. Si ya estás registrado, pulsa en "Iniciar Sesión".');
       }
 
-      // 2. RPC con nombre del restaurante y nombre del admin
       const { data: rpcResult, error: rpcErr } = await supabase.rpc('register_admin_restaurant', {
         p_auth_user_id: authUserId,
         p_email: email.trim().toLowerCase(),
@@ -198,8 +226,8 @@ export default function AdminLoginScreen() {
         throw new Error(rpcResult?.error || 'No se pudo crear el restaurante.');
       }
 
-      // 3. Guardar sesión
       await authSession.saveUser(rpcResult);
+      await rememberEmail(email);
 
       Alert.alert(
         '¡Restaurante Creado!',
@@ -222,15 +250,17 @@ export default function AdminLoginScreen() {
         <TouchableOpacity onPress={() => router.back()} style={styles.backBtn}>
           <Text style={styles.backBtnText}>← Volver</Text>
         </TouchableOpacity>
-        <Text style={styles.badgeTop}>Administrador</Text>
+        <Text style={styles.badgeTop}>Administrador Cloud</Text>
       </View>
 
-      {/* SCROLLVIEW CON AJUSTE AUTOMÁTICO NATIVO CONTRA TECLADO */}
+      {/* SCROLLVIEW AJUSTADO PARA EVITAR QUE EL TECLADO OCULTE LOS CAMPOS */}
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets={true}
         showsVerticalScrollIndicator={false}
+        contentInsetAdjustmentBehavior="automatic"
+        overScrollMode="always"
       >
         {/* Encabezado con Imagen */}
         <View style={styles.header}>
@@ -242,7 +272,7 @@ export default function AdminLoginScreen() {
         </View>
 
         {/* MÉTODOS PRINCIPALES: GMAIL (GOOGLE) Y APPLE */}
-        <View style={styles.socialButtonsBox}>
+        {/* <View style={styles.socialButtonsBox}>
           <TouchableOpacity
             style={styles.btnGoogle}
             activeOpacity={0.8}
@@ -351,6 +381,7 @@ export default function AdminLoginScreen() {
                     placeholderTextColor="#64748b"
                     autoCapitalize="none"
                     keyboardType="email-address"
+                    autoComplete="email"
                     value={email}
                     onChangeText={setEmail}
                   />
@@ -397,7 +428,8 @@ const styles = StyleSheet.create({
   backBtnText: { color: '#94a3b8', fontSize: 12, fontWeight: 'bold' },
   badgeTop: { color: '#818cf8', fontSize: 12, fontWeight: 'bold', backgroundColor: '#312e81', paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12 },
 
-  scrollContent: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 150 },
+  // 👇 Padding inferior amplio para permitir scroll completo con el teclado abierto
+  scrollContent: { paddingHorizontal: 24, paddingTop: 10, paddingBottom: 250 },
 
   header: { alignItems: 'center', marginVertical: 8 },
   imageContainer: {

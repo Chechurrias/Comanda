@@ -96,6 +96,9 @@ export default function WaiterLoginScreen() {
         setPin('');
         return;
       }
+      if (!data.session_token) {
+        throw new Error('El servidor no inició una sesión segura para el mesero.');
+      }
 
       // 1. Guardar preferencias
       await deviceStorage.set('tenant_slug', cleanSlug);
@@ -107,7 +110,8 @@ export default function WaiterLoginScreen() {
         restaurant_name: data.restaurant_name,
         staff_id: data.staff_id,
         full_name: data.full_name,
-        role: data.role || 'waiter_basic'
+        role: data.role || 'waiter_basic',
+        waiter_session_token: data.session_token
       });
 
       // 3. Redirigir a las mesas de la sala

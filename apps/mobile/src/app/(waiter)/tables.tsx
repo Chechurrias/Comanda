@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -12,11 +13,8 @@ import {
   View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { supabase } from '../../core/api/supabase';
 import { authSession } from '../../core/auth-session';
 import { cloudDbService } from '../../core/cloud-db';
-
-const ZONES = ['Todas', 'Salón Principal', 'Terraza', 'Bar / Barra', 'Zona VIP'];
 
 export default function WaiterTablesScreen() {
   const router = useRouter();
@@ -36,72 +34,84 @@ export default function WaiterTablesScreen() {
   const [modalMode, setModalMode] = useState<'order' | 'bill' | null>(null);
   const [cart, setCart] = useState<{ [id: string]: { name: string; price: number; quantity: number } }>({});
   const [isSending, setIsSending] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 
   // 1. Cargar datos iniciales
-  const loadInitialData = useCallback(async (tenantId: string) => {
+  const loadInitialData = useCallback(async (sessionToken: string, showLoading = false) => {
     try {
-      setIsLoading(true);
+      if (showLoading) setIsLoading(true);
       const [tablesData, menuData] = await Promise.all([
-        cloudDbService.getTables(tenantId),
-        cloudDbService.getAvailableMenu(tenantId),
+        cloudDbService.getWaiterTables(sessionToken),
+        cloudDbService.getWaiterMenu(sessionToken),
       ]);
       setTables(tablesData);
       setActiveMenu(menuData);
     } catch (err: any) {
-      Alert.alert('Error cargando sala', err.message || 'Verifica tu conexión a internet.');
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    let channel: any = null;
-
-    const setup = async () => {
-      const user = await authSession.getUser();
-      if (!user || !user.tenant_id) {
+      if (err.code === '28000') {
+        await authSession.clear();
         router.replace('/(auth)/pin-login');
         return;
       }
-      setSessionUser(user);
-      await loadInitialData(user.tenant_id);
+      if (showLoading) {
+        Alert.alert('Error cargando sala', err.message || 'Verifica tu conexión a internet.');
+      }
+    } finally {
+      if (showLoading) setIsLoading(false);
+    }
+  }, [router]);
 
-      // 2. Suscripción en Tiempo Real a las Mesas por WebSockets
-      channel = supabase
-        .channel(`realtime-waiter-tables-${user.tenant_id}`)
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'restaurant_tables',
-            filter: `tenant_id=eq.${user.tenant_id}`,
-          },
-          (payload) => {
-            if (payload.eventType === 'INSERT') {
-              setTables((prev) => [...prev, payload.new]);
-            } else if (payload.eventType === 'UPDATE') {
-              setTables((prev) =>
-                prev.map((t) => (t.id === payload.new.id ? payload.new : t))
-              );
-              // Si la mesa que el mesero tiene abierta cambió de estado
-              setSelectedTable((prev: any) =>
-                prev && prev.id === payload.new.id ? payload.new : prev
-              );
-            } else if (payload.eventType === 'DELETE') {
-              setTables((prev) => prev.filter((t) => t.id === payload.old.id));
-            }
-          }
-        )
-        .subscribe();
+  useEffect(() => {
+    let refreshTimer: ReturnType<typeof setInterval> | null = null;
+    let cancelled = false;
+
+    const setup = async () => {
+      const user = await authSession.getUser();
+      if (!user?.tenant_id || !user.waiter_session_token) {
+        await authSession.clear();
+        router.replace('/(auth)/pin-login');
+        return;
+      }
+      if (cancelled) return;
+      setSessionUser(user);
+      await loadInitialData(user.waiter_session_token, true);
+
+      refreshTimer = setInterval(() => {
+        void loadInitialData(user.waiter_session_token);
+      }, 7000);
     };
 
-    setup();
+    void setup();
 
     return () => {
-      if (channel) supabase.removeChannel(channel);
+      cancelled = true;
+      if (refreshTimer) clearInterval(refreshTimer);
     };
   }, [loadInitialData, router]);
+
+  useEffect(() => {
+    if (modalMode !== 'bill' || !sessionUser?.tenant_id || !selectedTable?.id) return;
+    let active = true;
+    const refreshOrder = async () => {
+      try {
+        const order = await cloudDbService.getActiveOrder(
+          sessionUser.tenant_id,
+          selectedTable.id,
+          sessionUser.waiter_session_token
+        );
+        if (active) {
+          setActiveOrder(order);
+          if (!order) setModalMode(null);
+        }
+      } catch (error) {
+        console.warn('No se pudo actualizar la cuenta de la mesa:', error);
+      }
+    };
+    const timer = setInterval(() => void refreshOrder(), 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [modalMode, selectedTable?.id, sessionUser?.tenant_id, sessionUser?.waiter_session_token]);
 
   // 3. Tocar una mesa
   const handleSelectTable = async (table: any) => {
@@ -110,7 +120,12 @@ export default function WaiterTablesScreen() {
 
     try {
       if (!sessionUser?.tenant_id) return;
-      const order = await cloudDbService.getActiveOrder(sessionUser.tenant_id, table.id);
+      setPendingRequestId(null);
+      const order = await cloudDbService.getActiveOrder(
+        sessionUser.tenant_id,
+        table.id,
+        sessionUser.waiter_session_token
+      );
       setActiveOrder(order);
 
       if (table.status === 'available') {
@@ -118,7 +133,7 @@ export default function WaiterTablesScreen() {
       } else {
         setModalMode('bill');
       }
-    } catch (err: any) {
+    } catch {
       Alert.alert('Error', 'No se pudo consultar el pedido de la mesa.');
     }
   };
@@ -168,24 +183,25 @@ export default function WaiterTablesScreen() {
 
     setIsSending(true);
     try {
-      const itemsList = cartEntries.map((item) => ({
-        id: Object.keys(cart).find((k) => cart[k] === item) || item.name,
-        name: item.name,
-        price: item.price,
+      const itemsList = Object.entries(cart).map(([id, item]) => ({
+        id,
         quantity: item.quantity,
       }));
+      const requestId = pendingRequestId || Crypto.randomUUID();
+      setPendingRequestId(requestId);
 
       await cloudDbService.sendOrder(
         sessionUser.tenant_id,
         selectedTable.id,
-        sessionUser.staff_id,
-        sessionUser.full_name,
         activeOrder?.id || null,
-        itemsList
+        itemsList,
+        requestId,
+        sessionUser.waiter_session_token
       );
 
       setModalMode(null);
       setCart({});
+      setPendingRequestId(null);
       Alert.alert('¡Comanda Enviada!', `Cargada a ${selectedTable.identifier}.`);
     } catch (err: any) {
       Alert.alert('Error al enviar comanda', err.message || 'Verifica tu conexión a internet.');
@@ -198,8 +214,12 @@ export default function WaiterTablesScreen() {
   const handleRequestBill = async () => {
     if (!selectedTable?.id) return;
     try {
-      await cloudDbService.requestTableBill(selectedTable.id);
-      Alert.alert('Cuenta Solicitada', `${selectedTable.identifier} lista para cobrar en Caja.`);
+      await cloudDbService.requestTableBill(
+        sessionUser.tenant_id,
+        selectedTable.id,
+        sessionUser.waiter_session_token
+      );
+      Alert.alert('Cuenta Solicitada', `${selectedTable.identifier} lista para cobrar desde administración.`);
       setModalMode(null);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo solicitar la cuenta.');
@@ -214,6 +234,7 @@ export default function WaiterTablesScreen() {
 
   // Ordenamiento numérico natural (Mesa 1, 2, ... 9, 10)
   const filteredTables = selectedZone === 'Todas' ? tables : tables.filter((t) => t.zone === selectedZone);
+  const zones = ['Todas', ...new Set(tables.map((table) => table.zone).filter(Boolean))];
   const sortedTables = [...filteredTables].sort((a, b) => {
     const numA = parseInt(String(a.identifier || '').match(/\d+/)?.[0] || '0', 10);
     const numB = parseInt(String(b.identifier || '').match(/\d+/)?.[0] || '0', 10);
@@ -242,7 +263,7 @@ export default function WaiterTablesScreen() {
 
       {/* Selector de Zonas */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.zoneScroll}>
-        {ZONES.map((z) => (
+        {zones.map((z) => (
           <TouchableOpacity
             key={z}
             style={[styles.zoneChip, selectedZone === z && styles.zoneChipActive]}
@@ -323,7 +344,7 @@ export default function WaiterTablesScreen() {
             <View style={styles.modalHeader}>
               <View>
                 <Text style={styles.modalTitle}>Comanda — {selectedTable?.identifier}</Text>
-                <Text style={styles.modalSub}>Toca '+' para agregar productos</Text>
+                <Text style={styles.modalSub}>Toca &apos;+&apos; para agregar productos</Text>
               </View>
               <TouchableOpacity onPress={() => setModalMode(null)} style={styles.closeBtn}>
                 <Text style={styles.closeBtnText}>✕</Text>
@@ -417,9 +438,11 @@ export default function WaiterTablesScreen() {
             </View>
 
             <View style={styles.checkoutButtons}>
-              <TouchableOpacity style={styles.addMoreBtn} onPress={() => setModalMode('order')}>
-                <Text style={styles.addMoreText}>+ Añadir Más Platos</Text>
-              </TouchableOpacity>
+              {selectedTable?.status !== 'billing' && (
+                <TouchableOpacity style={styles.addMoreBtn} onPress={() => setModalMode('order')}>
+                  <Text style={styles.addMoreText}>+ Añadir Más Platos</Text>
+                </TouchableOpacity>
+              )}
 
               {selectedTable?.status !== 'billing' && (
                 <TouchableOpacity style={styles.billBtn} onPress={handleRequestBill}>

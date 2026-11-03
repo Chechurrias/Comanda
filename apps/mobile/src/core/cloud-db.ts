@@ -12,6 +12,14 @@ export const cloudDbService = {
     return data || [];
   },
 
+  getWaiterTables: async (sessionToken: string) => {
+    const { data, error } = await supabase.rpc('waiter_get_tables', {
+      p_session_token: sessionToken,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
+
   addTable: async (tenantId: string, identifier: string, zone: string) => {
     const { data, error } = await supabase
       .from('restaurant_tables')
@@ -20,6 +28,19 @@ export const cloudDbService = {
       .single();
     if (error) throw error;
     return data;
+  },
+
+  getMenu: async (tenantId: string) => {
+    const { data, error } = await supabase
+      .from('menu_items')
+      .select('*, menu_categories(name)')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(item => ({
+      ...item,
+      category: item.menu_categories?.name || 'General',
+    }));
   },
 
   deleteTable: async (tableId: string) => {
@@ -45,128 +66,141 @@ export const cloudDbService = {
     }));
   },
 
-  // --- PEDIDOS Y COMANDAS ---
-  getActiveOrder: async (tenantId: string, tableId: string) => {
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select('*')
+  getWaiterMenu: async (sessionToken: string) => {
+    const { data, error } = await supabase.rpc('waiter_get_menu', {
+      p_session_token: sessionToken,
+    });
+    if (error) throw error;
+    return Array.isArray(data) ? data : [];
+  },
+
+  addMenuItem: async (tenantId: string, name: string, price: number, categoryName: string) => {
+    const normalizedCategory = categoryName.trim();
+    const { data: existingCategory, error: categoryLookupError } = await supabase
+      .from('menu_categories')
+      .select('id')
       .eq('tenant_id', tenantId)
-      .eq('table_id', tableId)
-      .in('status', ['open', 'billing'])
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .eq('name', normalizedCategory)
       .maybeSingle();
 
+    if (categoryLookupError) throw categoryLookupError;
+
+    let categoryId = existingCategory?.id;
+    if (!categoryId) {
+      const { data: newCategory, error: categoryInsertError } = await supabase
+        .from('menu_categories')
+        .insert({ tenant_id: tenantId, name: normalizedCategory })
+        .select('id')
+        .single();
+
+      if (categoryInsertError) throw categoryInsertError;
+      categoryId = newCategory.id;
+    }
+
+    const { data, error } = await supabase
+      .from('menu_items')
+      .insert({
+        tenant_id: tenantId,
+        category_id: categoryId,
+        name: name.trim(),
+        price,
+        is_available: true,
+      })
+      .select('*, menu_categories(name)')
+      .single();
     if (error) throw error;
-    if (!order) return null;
 
-    const { data: items, error: itemsErr } = await supabase
-      .from('order_items')
-      .select('*')
-      .eq('order_id', order.id);
+    return {
+      ...data,
+      category: data.menu_categories?.name || normalizedCategory,
+    };
+  },
 
-    if (itemsErr) throw itemsErr;
-    return { ...order, items: items || [] };
+  toggleMenuItem: async (itemId: string, isAvailable: boolean) => {
+    const { error } = await supabase
+      .from('menu_items')
+      .update({ is_available: isAvailable })
+      .eq('id', itemId);
+    if (error) throw error;
+  },
+
+  deleteMenuItem: async (itemId: string) => {
+    const { error } = await supabase
+      .from('menu_items')
+      .delete()
+      .eq('id', itemId);
+    if (error) throw error;
+  },
+
+  // --- PEDIDOS Y COMANDAS ---
+  getActiveOrder: async (tenantId: string, tableId: string, waiterSessionToken?: string) => {
+    const { data, error } = await supabase.rpc('get_active_order', {
+      p_tenant_id: tenantId,
+      p_table_id: tableId,
+      p_waiter_session: waiterSessionToken ?? null,
+    });
+    if (error) throw error;
+    if (!data || typeof data !== 'object') return null;
+    const result = data as { order?: Record<string, unknown>; items?: unknown[] };
+    return result.order ? { ...result.order, items: result.items || [] } : null;
   },
 
   sendOrder: async (
     tenantId: string,
     tableId: string,
-    staffId: string,
-    waiterName: string,
     activeOrderId: string | null,
-    itemsToAdd: Array<{ id: string; name: string; price: number; quantity: number }>
+    itemsToAdd: { id: string; quantity: number }[],
+    requestId: string,
+    waiterSessionToken?: string
   ) => {
-    let orderId = activeOrderId;
-    const addedTotal = itemsToAdd.reduce((acc, i) => acc + (i.price * i.quantity), 0);
-
-    // 1. Si no hay orden abierta, crearla
-    if (!orderId) {
-      const { data: newOrder, error: orderErr } = await supabase
-        .from('orders')
-        .insert({
-          tenant_id: tenantId,
-          table_id: tableId,
-          staff_id: staffId,
-          waiter_name: waiterName,
-          status: 'open',
-          total: addedTotal
-        })
-        .select()
-        .single();
-
-      if (orderErr) throw orderErr;
-      orderId = newOrder.id;
-    } else {
-      // 2. Si ya existe, incrementar total
-      const { data: currentOrder } = await supabase
-        .from('orders')
-        .select('total')
-        .eq('id', orderId)
-        .single();
-
-      const newTotal = Number(currentOrder?.total || 0) + addedTotal;
-      await supabase
-        .from('orders')
-        .update({ total: newTotal })
-        .eq('id', orderId);
-    }
-
-    // 3. Insertar los ítems
-    const itemsPayload = itemsToAdd.map(item => ({
-      tenant_id: tenantId,
-      order_id: orderId,
-      menu_item_id: item.id,
-      name: item.name,
-      unit_price: item.price,
-      quantity: item.quantity,
-      subtotal: item.price * item.quantity
-    }));
-
-    const { error: itemsErr } = await supabase.from('order_items').insert(itemsPayload);
-    if (itemsErr) throw itemsErr;
-
-    // 4. Marcar mesa como ocupada
-    await supabase
-      .from('restaurant_tables')
-      .update({ status: 'occupied' })
-      .eq('id', tableId);
-
-    return orderId;
+    const { data, error } = await supabase.rpc('send_order', {
+      p_tenant_id: tenantId,
+      p_table_id: tableId,
+      p_active_order_id: activeOrderId,
+      p_items: itemsToAdd,
+      p_request_id: requestId,
+      p_waiter_session: waiterSessionToken ?? null,
+    });
+    if (error) throw error;
+    if (typeof data !== 'string') throw new Error('El servidor no devolvió el pedido creado.');
+    return data;
   },
 
-  requestTableBill: async (tableId: string) => {
-    await supabase
-      .from('restaurant_tables')
-      .update({ status: 'billing' })
-      .eq('id', tableId);
-
-    await supabase
-      .from('orders')
-      .update({ status: 'billing' })
-      .eq('table_id', tableId)
-      .eq('status', 'open');
+  requestTableBill: async (tenantId: string, tableId: string, waiterSessionToken?: string) => {
+    const { error } = await supabase.rpc('request_table_bill', {
+      p_tenant_id: tenantId,
+      p_table_id: tableId,
+      p_waiter_session: waiterSessionToken ?? null,
+    });
+    if (error) throw error;
   },
 
 
-  payAndReleaseTable: async (orderId: string, tableId: string, paymentMethod: string) => {
-    // Cerrar orden con medio de pago y fecha
-    await supabase
-      .from('orders')
-      .update({
-        status: 'paid',
-        payment_method: paymentMethod,
-        closed_at: new Date().toISOString()
-      })
-      .eq('id', orderId);
+  payAndReleaseTable: async (
+    tenantId: string,
+    orderId: string,
+    tableId: string,
+    paymentMethod: string
+  ) => {
+    const { data, error } = await supabase.rpc('pay_and_release_table', {
+      p_tenant_id: tenantId,
+      p_order_id: orderId,
+      p_table_id: tableId,
+      p_payment_method: paymentMethod,
+    });
+    if (error) throw error;
+    if (typeof data !== 'number') throw new Error('El servidor no devolvió el total cobrado.');
+    return data;
+  },
 
-    // Liberar mesa a disponible
-    await supabase
-      .from('restaurant_tables')
-      .update({ status: 'available' })
-      .eq('id', tableId);
-      
-  }, 
+  getDailySalesReport: async (tenantId: string, day: string) => {
+    const { data, error } = await supabase.rpc('get_daily_sales_report', {
+      p_tenant_id: tenantId,
+      p_day: day,
+    });
+    if (error) throw error;
+    return data;
+  },
 
 
 
@@ -174,7 +208,7 @@ export const cloudDbService = {
   getStaff: async (tenantId: string) => {
     const { data, error } = await supabase
       .from('restaurant_staff')
-      .select('*')
+      .select('id, tenant_id, full_name, role, is_active, created_at')
       .eq('tenant_id', tenantId)
       .order('is_active', { ascending: false })
       .order('full_name', { ascending: true });
@@ -185,42 +219,36 @@ export const cloudDbService = {
   createWaiter: async (
     tenantId: string,
     fullName: string,
-    pinCode: string,
-    role: 'waiter_basic' | 'waiter_advanced'
+    pinCode: string
   ) => {
-    const { data, error } = await supabase
-      .from('restaurant_staff')
-      .insert({
-        tenant_id: tenantId,
-        full_name: fullName.trim(),
-        role,
-        pin_code: pinCode.trim(),
-        is_active: true, // Nace activo
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('admin_create_waiter', {
+      p_tenant_id: tenantId,
+      p_full_name: fullName.trim(),
+      p_pin: pinCode.trim(),
+    });
 
     if (error) {
       if (error.code === '23505') {
-        throw new Error(`Ya existe un mesero con el nombre "${fullName}" o con ese PIN en este restaurante.`);
+        throw new Error(`Ya existe un mesero con el nombre "${fullName}" en este restaurante.`);
       }
       throw error;
     }
     return data;
   },
 
+  resetWaiterPin: async (tenantId: string, staffId: string, pinCode: string) => {
+    const { error } = await supabase.rpc('admin_reset_waiter_pin', {
+      p_tenant_id: tenantId,
+      p_staff_id: staffId,
+      p_pin: pinCode.trim(),
+    });
+    if (error) throw error;
+  },
+
   toggleStaffStatus: async (staffId: string, nextStatus: boolean) => {
     const { error } = await supabase
       .from('restaurant_staff')
       .update({ is_active: nextStatus })
-      .eq('id', staffId);
-    if (error) throw error;
-  },
-
-  updateStaffRole: async (staffId: string, role: 'waiter_basic' | 'waiter_advanced') => {
-    const { error } = await supabase
-      .from('restaurant_staff')
-      .update({ role })
       .eq('id', staffId);
     if (error) throw error;
   },

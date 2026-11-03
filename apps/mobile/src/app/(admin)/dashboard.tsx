@@ -1,8 +1,6 @@
-import * as Network from 'expo-network';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -12,65 +10,59 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { supabase } from '../../core/api/supabase';
 import { authSession } from '../../core/auth-session';
-import { localDbService } from '../../core/database';
+import { cloudDbService } from '../../core/cloud-db';
 import { deviceStorage } from '../../core/storage';
 
 export default function AdminDashboardScreen() {
   const router = useRouter();
-  // ✅ AHORA (genérico o vacío mientras carga):
-const [restaurantName, setRestaurantName] = useState('Mi Restaurante');
-  const [localIp, setLocalIp] = useState('192.168.1.X:8080');
+  const [restaurantName, setRestaurantName] = useState('Mi Restaurante');
 
   const [tablesCount, setTablesCount] = useState(0);
   const [menuCount, setMenuCount] = useState(0);
   const [staffCount, setStaffCount] = useState(0);
 
   const loadStats = useCallback(async () => {
-    // 1. Obtener IP local del WiFi
-    if (Platform.OS !== 'web') {
+    try {
+      const cachedName = await deviceStorage.get('restaurant_name');
+      if (cachedName) {
+        setRestaurantName(cachedName);
+      } else {
+        const [tenantId, deviceId] = await Promise.all([
+          deviceStorage.get('tenant_id'),
+          deviceStorage.get('device_token'),
+        ]);
+        if (tenantId && deviceId) {
+          const { data, error } = await supabase.rpc('get_mobile_device_status', {
+            p_tenant_id: tenantId,
+            p_device_id: deviceId,
+          });
+          if (error) throw error;
+          const tenant = Array.isArray(data) ? data[0] : data;
+          if (tenant?.restaurant_name) {
+            setRestaurantName(tenant.restaurant_name);
+            await deviceStorage.set('restaurant_name', tenant.restaurant_name);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('No se pudo cargar el nombre del restaurante:', error);
+    }
+
+    const user = await authSession.getUser();
+    if (user?.tenant_id) {
       try {
-        const ip = await Network.getIpAddressAsync();
-        if (ip) setLocalIp(`${ip}:8080`);
-      } catch (e) {
-        console.warn('No se pudo obtener IP local:', e);
+        const [tables, menu, staff] = await Promise.all([
+          cloudDbService.getTables(user.tenant_id),
+          cloudDbService.getMenu(user.tenant_id),
+          cloudDbService.getStaff(user.tenant_id),
+        ]);
+        setTablesCount(tables.length);
+        setMenuCount(menu.length);
+        setStaffCount(staff.filter(member => member.role === 'waiter_basic').length);
+      } catch (error) {
+        console.warn('No se pudieron cargar las métricas de la nube:', error);
       }
     }
-
-       // 2. Obtener Nombre del Restaurante configurado (Prioridad Offline Local)
-try {
-  // Primero lee el nombre que este restaurante específico guardó en el dispositivo
-  const storedName = await deviceStorage.get('restaurant_name');
-  if (storedName) {
-    setRestaurantName(storedName);
-  } else {
-    // Si no está en local, lo busca en Supabase con el ID de su tenant/licencia
-    const tenantId = await deviceStorage.get('tenant_id');
-    if (tenantId) {
-      const deviceId = await deviceStorage.get('device_token');
-      const { data } = await supabase.rpc('get_mobile_device_status', {
-        p_tenant_id: tenantId,
-        p_device_id: deviceId,
-      });
-      const tenant = Array.isArray(data) ? data[0] : data;
-      if (tenant?.restaurant_name) {
-        setRestaurantName(tenant.restaurant_name);
-        await deviceStorage.set('restaurant_name', tenant.restaurant_name);
-      }
-    }
-  }
-} catch (e) {
-  console.warn('Error leyendo nombre del restaurante:', e);
-}
-
-    // 3. Contadores locales de la base de datos
-    setTablesCount(localDbService.getTables().length);
-    setMenuCount(localDbService.getMenu().length);
-
-    // ✅ Corregido: Detecta tanto 'waiter', 'waiter_basic' como 'waiter_advanced'
-    const waiters = localDbService
-      .getStaff()
-      .filter((s: any) => s.role && s.role.startsWith('waiter'));
-    setStaffCount(waiters.length);
   }, []);
 
   useFocusEffect(
@@ -87,7 +79,7 @@ try {
           <Text style={styles.storeTitle}>{restaurantName}</Text>
           <View style={styles.statusRow}>
             <View style={styles.liveDot} />
-            <Text style={styles.statusText}>Caja Local • {localIp}</Text>
+            <Text style={styles.statusText}>Operación cloud activa</Text>
           </View>
         </View>
 
@@ -142,7 +134,7 @@ try {
             </View>
             <Text style={styles.cardTitle}>Informes y Ventas</Text>
             <Text style={styles.cardSubtitle}>
-              Consulta ventas por fecha a nivel general, productos más vendidos y detalle de facturas cobradas.
+              Consulta ventas por fecha, productos más vendidos y detalle de cuentas cobradas.
             </Text>
             <View style={styles.cardFooter}>
               <Text style={styles.cardCounterGreen}>Reporte Diario & Facturación</Text>
@@ -188,22 +180,22 @@ try {
             </View>
           </TouchableOpacity>
 
-          {/* 🔒 LABEL 5: TERMINALES */}
+          {/* Licencia y dispositivos registrados en la nube */}
           <TouchableOpacity 
             style={styles.menuCard}
             activeOpacity={0.8}
-            onPress={() => router.push('/(admin)/terminals')}
+            onPress={() => router.push('/(admin)/devices')}
           >
             <View style={styles.cardIconBox}>
-              <Text style={styles.cardIcon}>🔒</Text>
+              <Text style={styles.cardIcon}>☁️</Text>
             </View>
-            <Text style={styles.cardTitle}>Terminales y PIN Maestro</Text>
+            <Text style={styles.cardTitle}>Licencia y dispositivos</Text>
             <Text style={styles.cardSubtitle}>
-              Dirección IP del servidor WiFi y cambio de PIN de gerencia.
+              Consulta la licencia y los dispositivos autorizados en la nube.
             </Text>
             <View style={styles.cardFooter}>
-              <Text style={styles.cardCounter}>Seguridad & Red</Text>
-              <Text style={styles.cardLink}>Configurar ➔</Text>
+              <Text style={styles.cardCounter}>Administración cloud</Text>
+              <Text style={styles.cardLink}>Consultar ➔</Text>
             </View>
           </TouchableOpacity>
 
@@ -228,7 +220,7 @@ const styles = StyleSheet.create({
   storeTitle: { color: '#ffffff', fontSize: 19, fontWeight: 'bold' },
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 },
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10b981' },
-  statusText: { color: '#10b981', fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontWeight: 'bold' },
+  statusText: { color: '#10b981', fontSize: 11, fontFamily: 'monospace', fontWeight: 'bold' },
   exitButton: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#1e293b', borderRadius: 8 },
   exitText: { color: '#a5b4fc', fontSize: 12, fontWeight: '600' },
   content: { padding: 20, paddingBottom: 40 },

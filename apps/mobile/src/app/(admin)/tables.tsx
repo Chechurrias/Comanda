@@ -1,3 +1,4 @@
+import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -25,6 +26,7 @@ export default function AdminTablesScreen() {
   const [selectedZone, setSelectedZone] = useState('Todas');
   const [activeMenu, setActiveMenu] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCreatingTable, setIsCreatingTable] = useState(false);
 
   // Sesión Admin
   const [sessionUser, setSessionUser] = useState<any | null>(null);
@@ -38,6 +40,7 @@ export default function AdminTablesScreen() {
   const [cart, setCart] = useState<{ [id: string]: { name: string; price: number; quantity: number } }>({});
   const [selectedPayment, setSelectedPayment] = useState('Efectivo');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [pendingRequestId, setPendingRequestId] = useState<string | null>(null);
 
   const loadData = useCallback(async (tenantId: string) => {
     try {
@@ -103,6 +106,27 @@ export default function AdminTablesScreen() {
     };
   }, [loadData, router]);
 
+  useEffect(() => {
+    if (modalMode !== 'checkout' || !sessionUser?.tenant_id || !selectedTable?.id) return;
+    let active = true;
+    const refreshOrder = async () => {
+      try {
+        const order = await cloudDbService.getActiveOrder(sessionUser.tenant_id, selectedTable.id);
+        if (active) {
+          setActiveOrder(order);
+          if (!order) setModalMode(null);
+        }
+      } catch (error) {
+        console.warn('No se pudo actualizar la cuenta de la mesa:', error);
+      }
+    };
+    const timer = setInterval(() => void refreshOrder(), 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [modalMode, selectedTable?.id, sessionUser?.tenant_id]);
+
   // Consecutivo automático de mesas
   const getNextTableNumber = () => {
     if (!tables || tables.length === 0) return 1;
@@ -119,12 +143,31 @@ export default function AdminTablesScreen() {
 
   // Crear mesa en la nube
   const handleCreateTable = async () => {
-    if (!sessionUser?.tenant_id) return;
+    if (!sessionUser?.tenant_id) {
+      Alert.alert('Sesión no disponible', 'Vuelve a iniciar sesión para administrar las mesas.');
+      return;
+    }
+    if (isCreatingTable) return;
+    setIsCreatingTable(true);
     try {
       const assignedZone = selectedZone === 'Todas' ? 'Salón Principal' : selectedZone;
-      await cloudDbService.addTable(sessionUser.tenant_id, `Mesa ${nextTableNumber}`, assignedZone);
+      const newTable = await cloudDbService.addTable(
+        sessionUser.tenant_id,
+        `Mesa ${nextTableNumber}`,
+        assignedZone
+      );
+      setTables(current => current.some(table => table.id === newTable.id)
+        ? current
+        : [...current, newTable]);
     } catch (err: any) {
-      Alert.alert('Error', err.message || 'No se pudo crear la mesa.');
+      Alert.alert(
+        'No se pudo crear la mesa',
+        err.code === '23505'
+          ? 'Ya existe una mesa con ese número en este restaurante.'
+          : err.message || 'Intenta de nuevo.'
+      );
+    } finally {
+      setIsCreatingTable(false);
     }
   };
 
@@ -146,7 +189,7 @@ export default function AdminTablesScreen() {
           onPress: async () => {
             try {
               await cloudDbService.deleteTable(table.id);
-            } catch (err: any) {
+            } catch {
               Alert.alert('Error', 'No se pudo eliminar la mesa.');
             }
           },
@@ -159,6 +202,7 @@ export default function AdminTablesScreen() {
   const handleSelectTable = async (table: any) => {
     setSelectedTable(table);
     setCart({});
+    setPendingRequestId(null);
 
     try {
       if (!sessionUser?.tenant_id) return;
@@ -170,7 +214,7 @@ export default function AdminTablesScreen() {
       } else {
         setModalMode('checkout');
       }
-    } catch (err: any) {
+    } catch {
       Alert.alert('Error', 'No se pudo consultar el pedido.');
     }
   };
@@ -216,24 +260,24 @@ export default function AdminTablesScreen() {
 
     setIsProcessing(true);
     try {
-      const itemsList = cartEntries.map((item) => ({
-        id: Object.keys(cart).find((k) => cart[k] === item) || item.name,
-        name: item.name,
-        price: item.price,
+      const itemsList = Object.entries(cart).map(([id, item]) => ({
+        id,
         quantity: item.quantity,
       }));
+      const requestId = pendingRequestId || Crypto.randomUUID();
+      setPendingRequestId(requestId);
 
       await cloudDbService.sendOrder(
         sessionUser.tenant_id,
         selectedTable.id,
-        sessionUser.staff_id,
-        sessionUser.full_name,
         activeOrder?.id || null,
-        itemsList
+        itemsList,
+        requestId
       );
 
       setModalMode(null);
       setCart({});
+      setPendingRequestId(null);
       Alert.alert('Comanda cargada', `Pedido registrado en ${selectedTable.identifier}.`);
     } catch (err: any) {
       Alert.alert('Error', err.message || 'No se pudo cargar la comanda.');
@@ -246,9 +290,9 @@ export default function AdminTablesScreen() {
   const handleRequestBill = async () => {
     if (!selectedTable?.id) return;
     try {
-      await cloudDbService.requestTableBill(selectedTable.id);
+      await cloudDbService.requestTableBill(sessionUser.tenant_id, selectedTable.id);
       setModalMode(null);
-    } catch (err: any) {
+    } catch {
       Alert.alert('Error', 'No se pudo pedir la cuenta.');
     }
   };
@@ -259,10 +303,15 @@ export default function AdminTablesScreen() {
 
     setIsProcessing(true);
     try {
-      await cloudDbService.payAndReleaseTable(activeOrder.id, selectedTable.id, selectedPayment);
+      const finalTotal = await cloudDbService.payAndReleaseTable(
+        sessionUser.tenant_id,
+        activeOrder.id,
+        selectedTable.id,
+        selectedPayment
+      );
       Alert.alert(
         'Pago Confirmado',
-        `Cuenta de $${Number(activeOrder.total).toLocaleString()} COP cobrada con ${selectedPayment}.\n\n¡${selectedTable.identifier} liberada!`
+        `Cuenta de $${finalTotal.toLocaleString()} COP cobrada con ${selectedPayment}.\n\n¡${selectedTable.identifier} liberada!`
       );
       setModalMode(null);
     } catch (err: any) {
@@ -288,8 +337,15 @@ export default function AdminTablesScreen() {
     <SafeAreaView style={styles.container}>
       {/* Botón superior transparente para crear mesa */}
       <View style={styles.topActions}>
-        <TouchableOpacity style={styles.addTableTransparentBtn} activeOpacity={0.6} onPress={handleCreateTable}>
-          <Text style={styles.addTableTransparentText}>+ Crear Mesa {nextTableNumber}</Text>
+        <TouchableOpacity
+          style={styles.addTableTransparentBtn}
+          activeOpacity={0.6}
+          onPress={() => void handleCreateTable()}
+          disabled={isCreatingTable}
+        >
+          <Text style={styles.addTableTransparentText}>
+            {isCreatingTable ? 'Creando mesa...' : `+ Crear Mesa ${nextTableNumber}`}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -478,9 +534,11 @@ export default function AdminTablesScreen() {
             </View>
 
             <View style={styles.checkoutButtons}>
-              <TouchableOpacity style={styles.addMoreBtn} onPress={() => setModalMode('order')}>
-                <Text style={styles.addMoreText}>+ Añadir Platos</Text>
-              </TouchableOpacity>
+              {selectedTable?.status !== 'billing' && (
+                <TouchableOpacity style={styles.addMoreBtn} onPress={() => setModalMode('order')}>
+                  <Text style={styles.addMoreText}>+ Añadir Platos</Text>
+                </TouchableOpacity>
+              )}
 
               {selectedTable?.status !== 'billing' && (
                 <TouchableOpacity style={styles.billBtn} onPress={handleRequestBill}>

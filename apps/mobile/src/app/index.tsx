@@ -17,6 +17,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { authSession } from '../core/auth-session';
+import { deviceStorage } from '../core/storage';
 
 // =====================================================
 // COMANDA CLOUD — DASHBOARD RÁPIDO
@@ -35,8 +36,6 @@ const COLORS = {
   overlay: 'rgba(3, 5, 15, 0.66)',
 };
 
-// Imagen de restaurante.
-// Para producción, es preferible usar un recurso local.
 const RESTAURANT_IMAGE = {
   uri: 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=1200&q=85',
 };
@@ -51,7 +50,7 @@ export default function WelcomeScreen() {
   const shortScreen = height < 740;
 
   // ===================================================
-  // VALIDACIÓN DE SESIÓN EXISTENTE
+  // VALIDACIÓN DE SESIÓN EXISTENTE (ORIGINAL Y ESTABLE)
   // ===================================================
 
   useEffect(() => {
@@ -59,6 +58,11 @@ export default function WelcomeScreen() {
 
     const checkActiveSession = async () => {
       try {
+        await Promise.all([
+          deviceStorage.remove('is_server'),
+          deviceStorage.remove('server_ip'),
+          deviceStorage.remove('pairing_secret'),
+        ]);
         const user = await authSession.getUser();
 
         if (!mounted) return;
@@ -66,8 +70,10 @@ export default function WelcomeScreen() {
         if (user && user.tenant_id) {
           if (user.role === 'restaurant_admin') {
             router.replace('/(admin)/dashboard');
-          } else {
+          } else if (user.waiter_session_token) {
             router.replace('/(waiter)/tables');
+          } else {
+            await authSession.clear();
           }
 
           return;
@@ -131,8 +137,6 @@ export default function WelcomeScreen() {
         style={styles.background}
         resizeMode="cover"
       >
-        {/* Capa oscura para garantizar la legibilidad */}
-
         <View
           pointerEvents="none"
           style={styles.backgroundOverlay}
@@ -155,10 +159,7 @@ export default function WelcomeScreen() {
             ]}
             showsVerticalScrollIndicator={false}
           >
-            {/* =========================================
-                ENCABEZADO
-            ========================================== */}
-
+            {/* ENCABEZADO */}
             <View style={styles.header}>
               <View style={styles.brandContainer}>
                 <View style={styles.logoContainer}>
@@ -188,10 +189,7 @@ export default function WelcomeScreen() {
               </View>
             </View>
 
-            {/* =========================================
-                BIENVENIDA
-            ========================================== */}
-
+            {/* BIENVENIDA */}
             <View style={styles.heroSection}>
               <Text style={styles.welcomeTitle}>
                 ¡Bienvenido!
@@ -204,13 +202,9 @@ export default function WelcomeScreen() {
               <View style={styles.titleDivider} />
             </View>
 
-            {/* =========================================
-                ACCESOS RÁPIDOS
-            ========================================== */}
-
+            {/* ACCESOS RÁPIDOS */}
             <View style={styles.accessContainer}>
               {/* ADMINISTRADOR / CAJA */}
-
               <TouchableOpacity
                 style={styles.accessCard}
                 activeOpacity={0.82}
@@ -254,7 +248,6 @@ export default function WelcomeScreen() {
               </TouchableOpacity>
 
               {/* MESERO */}
-
               <TouchableOpacity
                 style={styles.accessCard}
                 activeOpacity={0.82}
@@ -298,16 +291,7 @@ export default function WelcomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* =========================================
-                SEGURIDAD
-            ========================================== */}
-
-            
-
-            {/* =========================================
-                PIE Y MARCA
-            ========================================== */}
-
+            {/* PIE Y MARCA */}
             <View style={styles.footer}>
               <View style={styles.footerWave}>
                 <View style={styles.waveAccent} />
@@ -345,38 +329,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: COLORS.background,
   },
-
   background: {
     flex: 1,
   },
-
   backgroundOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: COLORS.overlay,
   },
-
   safeArea: {
     flex: 1,
   },
-
   scrollView: {
     flex: 1,
   },
-
   scrollContent: {
     flexGrow: 1,
     justifyContent: 'space-between',
   },
-
-  // CARGA
-
   loadingContainer: {
     flex: 1,
     backgroundColor: COLORS.background,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   loadingLogo: {
     width: 76,
     height: 76,
@@ -385,25 +360,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   loadingText: {
     color: COLORS.textSecondary,
     fontSize: 14,
     marginTop: 14,
   },
-
-  // ENCABEZADO
-
   header: {
     marginBottom: 34,
   },
-
   brandContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-
   logoContainer: {
     width: 66,
     height: 62,
@@ -411,12 +380,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     position: 'relative',
   },
-
   logoRestaurant: {
     position: 'absolute',
     top: 20,
   },
-
   brandTitle: {
     color: COLORS.white,
     fontSize: 21,
@@ -424,13 +391,9 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.5,
   },
-
-  // BIENVENIDA
-
   heroSection: {
     marginBottom: 24,
   },
-
   welcomeTitle: {
     color: COLORS.white,
     fontSize: 30,
@@ -438,49 +401,36 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     letterSpacing: -0.8,
   },
-
   welcomeSubtitle: {
     color: '#F0F0F7',
     fontSize: 15,
     lineHeight: 23,
     marginTop: 4,
   },
-
   titleDivider: {
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.22)',
     marginTop: 20,
   },
-
-  // TARJETAS DE ACCESO
-
   accessContainer: {
     gap: 15,
   },
-
   accessCard: {
     minHeight: 116,
     padding: 15,
-
     flexDirection: 'row',
     alignItems: 'center',
     gap: 13,
-
     backgroundColor: COLORS.cardBackground,
     borderWidth: 1,
     borderColor: COLORS.cardBorder,
     borderRadius: 23,
-
     shadowColor: '#000000',
-    shadowOffset: {
-      width: 0,
-      height: 7,
-    },
+    shadowOffset: { width: 0, height: 7 },
     shadowOpacity: 0.22,
     shadowRadius: 14,
     elevation: 5,
   },
-
   accessIcon: {
     width: 64,
     height: 64,
@@ -488,94 +438,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-
   adminIcon: {
     backgroundColor: COLORS.primary,
   },
-
   waiterIcon: {
     backgroundColor: '#079669',
   },
-
   accessInfo: {
     flex: 1,
     minWidth: 0,
     justifyContent: 'center',
   },
-
   accessTitle: {
     color: COLORS.white,
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '800',
   },
-
   accessDescription: {
     color: COLORS.textSecondary,
     fontSize: 12,
     lineHeight: 17,
     marginTop: 6,
   },
-
   accessArrow: {
     width: 35,
     height: 35,
     justifyContent: 'center',
     alignItems: 'center',
   },
-
-  // SEGURIDAD
-
-  securityCard: {
-    marginTop: 32,
-    paddingHorizontal: 17,
-    paddingVertical: 16,
-
-    minHeight: 76,
-
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 12,
-
-    backgroundColor: 'rgba(17, 20, 39, 0.76)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.10)',
-    borderRadius: 20,
-  },
-
-  securityIconContainer: {
-    width: 35,
-    height: 35,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-
-  securityInfo: {
-    flex: 1,
-  },
-
-  securityTitle: {
-    color: COLORS.white,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-  securityDescription: {
-    color: COLORS.textSecondary,
-    fontSize: 11,
-    lineHeight: 16,
-    marginTop: 2,
-  },
-
-  // PIE DE PANTALLA
-
   footer: {
     marginTop: 28,
     minHeight: 95,
     justifyContent: 'flex-end',
   },
-
   footerWave: {
     minHeight: 95,
     marginHorizontal: -28,
@@ -584,7 +480,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 75,
     borderTopRightRadius: 25,
   },
-
   waveAccent: {
     position: 'absolute',
     top: -22,
@@ -593,13 +488,8 @@ const styles = StyleSheet.create({
     height: 55,
     backgroundColor: 'rgba(104, 69, 255, 0.36)',
     borderRadius: 80,
-    transform: [
-      {
-        rotate: '-5deg',
-      },
-    ],
+    transform: [{ rotate: '-5deg' }],
   },
-
   footerContent: {
     flex: 1,
     paddingTop: 26,
@@ -607,7 +497,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-
   footerBrand: {
     color: COLORS.white,
     fontSize: 10,
@@ -615,7 +504,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     marginTop: 5,
   },
-
   footerDescription: {
     color: '#D5D0F5',
     fontSize: 10,
