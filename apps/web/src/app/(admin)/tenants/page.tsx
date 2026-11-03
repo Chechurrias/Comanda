@@ -1,16 +1,21 @@
 'use client';
 
-import { supabase } from '@/lib/supabase';
+import { getConsoleAccessToken, supabase } from '@/lib/supabase';
 import {
+  Armchair,
   Ban,
   Building2,
   CheckCircle2,
+  Eye,
   KeyRound,
+  Loader2,
+  ReceiptText,
   RefreshCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Utensils,
   Users,
   X,
   XCircle
@@ -45,6 +50,34 @@ interface UserItem {
   is_active: boolean;
 }
 
+interface TenantInspection {
+  tenant: {
+    id: string;
+    name: string | null;
+    slug: string | null;
+    status: string;
+    timezone: string;
+    currency: string;
+    contact_email: string | null;
+    contact_phone: string | null;
+    created_at: string;
+    updated_at: string;
+    legal_name: string | null;
+    trade_name: string | null;
+    tax_id: string | null;
+    logo_url: string | null;
+  };
+  licenses: Array<Record<string, string | number | boolean | null>>;
+  tables: Array<{ id: string; identifier: string; zone: string; status: string; created_at: string; is_archived: boolean }>;
+  categories: Array<{ id: string; name: string; sort_order: number | null; created_at: string }>;
+  menuItems: Array<{ id: string; category_id: string | null; name: string; price: number; is_available: boolean; created_at: string }>;
+  staff: Array<{ id: string; full_name: string; role: string; is_active: boolean; created_at: string; email: string | null }>;
+  orders: Array<{ id: string; table_id: string | null; table_identifier: string | null; staff_id: string | null; waiter_name: string; status: string; total: number; payment_method: string | null; created_at: string; closed_at: string | null }>;
+  orderItems: Array<{ id: string; order_id: string; menu_item_id: string | null; name: string; unit_price: number; quantity: number; subtotal: number; created_at: string }>;
+}
+
+type InspectionTab = 'overview' | 'tables' | 'menu' | 'staff' | 'sales';
+
 const PLAN_LIMITS: Record<string, { max_devices: number; max_waiters: number; max_tables: number }> = {
   basic: { max_devices: 1, max_waiters: 0, max_tables: 15 },
   pro: { max_devices: 3, max_waiters: 2, max_tables: 35 },
@@ -64,6 +97,11 @@ export default function TenantsManagementPage() {
   const [activeTab, setActiveTab] = useState<'license' | 'staff'>('license');
   const [tenantUsers, setTenantUsers] = useState<UserItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [inspection, setInspection] = useState<TenantInspection | null>(null);
+  const [inspectionTenant, setInspectionTenant] = useState<TenantDetail | null>(null);
+  const [inspectionTab, setInspectionTab] = useState<InspectionTab>('overview');
+  const [isInspectionLoading, setIsInspectionLoading] = useState(false);
+  const [inspectionError, setInspectionError] = useState('');
 
   // Formulario de extensión de licencia
   const [extendOption, setExtendOption] = useState('1');
@@ -72,20 +110,20 @@ export default function TenantsManagementPage() {
   const loadTenantsData = async () => {
     setIsLoading(true);
     try {
-      const [tenantsRes, licensesRes, plansRes, usersRes] = await Promise.all([
+      const [tenantsRes, licensesRes, plansRes, staffRes] = await Promise.all([
         supabase.from('tenants').select('*').order('created_at', { ascending: false }),
         supabase.from('licenses').select('*'),
         supabase.from('plans').select('*'),
-        supabase.from('users').select('id, tenant_id, role')
+        supabase.from('restaurant_staff').select('id, tenant_id, role')
       ]);
 
-      const queryError = tenantsRes.error || licensesRes.error || plansRes.error || usersRes.error;
+      const queryError = tenantsRes.error || licensesRes.error || plansRes.error || staffRes.error;
       if (queryError) throw queryError;
 
       const rawTenants = tenantsRes.data || [];
       const rawLicenses = licensesRes.data || [];
       const rawPlans = plansRes.data || [];
-      const rawUsers = usersRes.data || [];
+      const rawStaff = staffRes.data || [];
 
       const consolidated: TenantDetail[] = rawTenants.map((t) => {
         const tenantLicenses = rawLicenses
@@ -93,7 +131,7 @@ export default function TenantsManagementPage() {
           .sort((a, b) => new Date(b.created_at || b.starts_at || 0).getTime() - new Date(a.created_at || a.starts_at || 0).getTime());
         const lic = tenantLicenses.find(l => l.is_active) || tenantLicenses[0];
         const plan = lic ? rawPlans.find(p => p.code?.toLowerCase() === lic.plan?.toLowerCase()) : null;
-        const usrCount = rawUsers.filter(u => u.tenant_id === t.id).length;
+        const staffCount = rawStaff.filter(staff => staff.tenant_id === t.id).length;
 
         return {
           id: t.id,
@@ -113,7 +151,7 @@ export default function TenantsManagementPage() {
             max_devices: lic.max_devices ?? plan?.max_devices ?? 1,
             max_waiters: lic.max_waiters ?? plan?.max_waiters ?? 5,
           } : undefined,
-          users_count: usrCount,
+          users_count: staffCount,
         };
       });
 
@@ -137,16 +175,50 @@ export default function TenantsManagementPage() {
     setIsModalOpen(true);
     setActiveTab('license');
 
-    const usersRes = await supabase
-      .from('users')
+    const staffRes = await supabase
+      .from('restaurant_staff')
       .select('id, full_name, role, is_active')
       .eq('tenant_id', tenant.id);
 
-    if (usersRes.error) {
-      alert(`No se pudo cargar el personal del restaurante: ${usersRes.error.message}`);
+    if (staffRes.error) {
+      alert(`No se pudo cargar el personal del restaurante: ${staffRes.error.message}`);
       return;
     }
-    setTenantUsers(usersRes.data || []);
+    setTenantUsers(staffRes.data || []);
+  };
+
+  const openInspection = async (tenant: TenantDetail) => {
+    setInspectionTenant(tenant);
+    setInspection(null);
+    setInspectionError('');
+    setInspectionTab('overview');
+    setIsInspectionLoading(true);
+
+    try {
+      const accessToken = await getConsoleAccessToken();
+      if (!accessToken) throw new Error('Tu sesión expiró. Inicia sesión nuevamente.');
+
+      const response = await fetch(`/api/admin/tenants/${tenant.id}/details`, {
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+        cache: 'no-store',
+      });
+      const responseBody = await response.text();
+      let result: Partial<TenantInspection> & { error?: string };
+      try {
+        result = JSON.parse(responseBody);
+      } catch {
+        throw new Error(`El servidor devolvió una respuesta inesperada (HTTP ${response.status}). Intenta actualizar la página.`);
+      }
+      if (!response.ok) throw new Error(result.error || 'No se pudo consultar el restaurante.');
+      setInspection(result as TenantInspection);
+    } catch (error) {
+      setInspectionError(error instanceof Error ? error.message : 'No se pudo cargar el detalle.');
+    } finally {
+      setIsInspectionLoading(false);
+    }
   };
 
   // 4. Suspender / Reactivar Restaurante
@@ -267,7 +339,7 @@ export default function TenantsManagementPage() {
     }
 
     try {
-      const { error } = await supabase.from('users').update({ pin_code: newPin }).eq('id', userId);
+      const { error } = await supabase.from('restaurant_staff').update({ pin_code: newPin }).eq('id', userId);
       if (error) throw error;
       alert(`PIN de ${userName} actualizado con éxito.`);
     } catch (err: any) {
@@ -472,6 +544,13 @@ export default function TenantsManagementPage() {
                       {/* Acciones */}
                       <td className="px-5 py-3.5 text-right">
                         <button
+                          onClick={() => openInspection(t)}
+                          className="inline-flex items-center gap-1 px-3 py-1.5 mr-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all active:scale-95"
+                        >
+                          <Eye className="w-3 h-3" />
+                          Ver detalle
+                        </button>
+                        <button
                           onClick={() => openManageModal(t)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600/20 text-indigo-400 text-xs font-semibold border border-indigo-500/20 transition-all active:scale-95"
                         >
@@ -673,6 +752,223 @@ export default function TenantsManagementPage() {
         </div>
       )}
 
+      {inspectionTenant && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-3 sm:p-6 bg-slate-950/85 backdrop-blur-sm">
+          <section className="w-full max-w-6xl max-h-[92vh] flex flex-col rounded-2xl border border-slate-800 bg-slate-900 shadow-2xl">
+            <header className="flex items-start justify-between gap-4 px-5 py-4 border-b border-slate-800">
+              <div>
+                <h2 className="text-lg font-bold text-white">{inspectionTenant.name}</h2>
+                <p className="text-xs text-slate-400 mt-1">
+                  {inspectionTenant.trade_name || 'Detalle del restaurante'} · {inspectionTenant.tax_id || 'Sin NIT'}
+                </p>
+              </div>
+              <button onClick={() => setInspectionTenant(null)} aria-label="Cerrar detalle" className="p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+
+            <nav className="flex gap-1 overflow-x-auto px-4 border-b border-slate-800">
+              {([
+                ['overview', 'General'],
+                ['tables', 'Mesas'],
+                ['menu', 'Platos y categorías'],
+                ['staff', 'Meseros'],
+                ['sales', 'Comandas y ventas'],
+              ] as Array<[InspectionTab, string]>).map(([tab, label]) => (
+                <button key={tab} onClick={() => setInspectionTab(tab)} className={`shrink-0 px-3 py-3 text-xs font-semibold border-b-2 ${inspectionTab === tab ? 'border-indigo-500 text-indigo-300' : 'border-transparent text-slate-400 hover:text-white'}`}>
+                  {label}
+                </button>
+              ))}
+            </nav>
+
+            <div className="p-5 overflow-y-auto">
+              {isInspectionLoading ? (
+                <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400">
+                  <Loader2 className="w-5 h-5 animate-spin" /> Consultando datos seguros de Supabase…
+                </div>
+              ) : inspectionError ? (
+                <div role="alert" className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-300">{inspectionError}</div>
+              ) : inspection ? (
+                <>
+                  {inspectionTab === 'overview' && (
+                    <div className="space-y-5">
+                      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                        {[
+                          ['Mesas', inspection.tables.length, <Armchair key="tables" className="w-4 h-4" />],
+                          ['Platos', inspection.menuItems.length, <Utensils key="menu" className="w-4 h-4" />],
+                          ['Meseros', inspection.staff.length, <Users key="staff" className="w-4 h-4" />],
+                          ['Comandas', inspection.orders.length, <ReceiptText key="orders" className="w-4 h-4" />],
+                        ].map(([label, count, icon]) => (
+                          <div key={String(label)} className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+                            <div className="flex items-center justify-between text-slate-400 text-xs">{label}{icon}</div>
+                            <p className="mt-2 text-2xl font-bold text-white">{count}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <DetailCard title="Información del establecimiento">
+                          <DetailRow label="Nombre comercial" value={inspection.tenant.trade_name || inspection.tenant.name} />
+                          <DetailRow label="Razón social" value={inspection.tenant.legal_name} />
+                          <DetailRow label="NIT" value={inspection.tenant.tax_id} />
+                          <DetailRow label="Slug" value={inspection.tenant.slug} />
+                          <DetailRow label="Estado" value={inspection.tenant.status} />
+                          <DetailRow label="Moneda / zona horaria" value={`${inspection.tenant.currency} · ${inspection.tenant.timezone}`} />
+                          <DetailRow label="Correo" value={inspection.tenant.contact_email} />
+                          <DetailRow label="Teléfono" value={inspection.tenant.contact_phone} />
+                          <DetailRow
+                            label="Logotipo"
+                            value={inspection.tenant.logo_url
+                              ? <a href={inspection.tenant.logo_url} target="_blank" rel="noreferrer" className="text-indigo-300 underline">Ver archivo</a>
+                              : 'Sin logotipo'}
+                          />
+                          <DetailRow label="Creado" value={formatDateTime(inspection.tenant.created_at)} />
+                          <DetailRow label="Actualizado" value={formatDateTime(inspection.tenant.updated_at)} />
+                        </DetailCard>
+                        <DetailCard title="Licencias">
+                          {inspection.licenses.length ? inspection.licenses.map((license, index) => (
+                            <div key={String(license.id ?? index)} className="border-b border-slate-800 last:border-0 py-2">
+                              <DetailRow label="Plan" value={String(license.plan_name ?? license.plan ?? '—')} />
+                              <DetailRow label="Estado" value={license.is_active ? 'Activa' : 'Inactiva'} />
+                              <DetailRow label="Vigencia" value={`${formatDateTime(String(license.starts_at ?? ''))} – ${formatDateTime(String(license.expires_at ?? ''))}`} />
+                              <DetailRow label="Capacidades configuradas" value={`Dispositivos ${license.max_devices ?? '—'} · Meseros ${license.max_waiters ?? '—'} · Mesas ${license.max_tables ?? '—'}`} />
+                            </div>
+                          )) : <p className="text-xs text-slate-500">Sin licencias registradas.</p>}
+                        </DetailCard>
+                      </div>
+                    </div>
+                  )}
+
+                  {inspectionTab === 'tables' && (
+                    <DataTable
+                      icon={<Armchair className="w-4 h-4" />}
+                      title="Mesas"
+                      empty="No hay mesas registradas."
+                      headers={['Mesa', 'Zona', 'Estado', 'Archivada', 'Creada']}
+                      rows={inspection.tables.map(table => [table.identifier, table.zone, table.status, table.is_archived ? 'Sí' : 'No', formatDateTime(table.created_at)])}
+                    />
+                  )}
+                  {inspectionTab === 'menu' && (
+                    <div className="space-y-6">
+                      <DataTable
+                        icon={<Utensils className="w-4 h-4" />}
+                        title="Platos"
+                        empty="No hay platos registrados."
+                        headers={['Plato', 'Categoría', 'Precio', 'Disponible', 'Creado']}
+                        rows={inspection.menuItems.map(item => [
+                          item.name,
+                          inspection.categories.find(category => category.id === item.category_id)?.name ?? 'Sin categoría',
+                          `${inspection.tenant.currency} ${Number(item.price).toLocaleString()}`,
+                          item.is_available ? 'Sí' : 'No',
+                          formatDateTime(item.created_at),
+                        ])}
+                      />
+                      <DataTable
+                        icon={<Utensils className="w-4 h-4" />}
+                        title="Categorías"
+                        empty="No hay categorías registradas."
+                        headers={['Categoría', 'Orden', 'Creada']}
+                        rows={inspection.categories.map(category => [category.name, category.sort_order ?? '—', formatDateTime(category.created_at)])}
+                      />
+                    </div>
+                  )}
+                  {inspectionTab === 'staff' && (
+                    <DataTable
+                      icon={<Users className="w-4 h-4" />}
+                      title="Meseros"
+                      empty="No hay meseros registrados."
+                      headers={['Nombre', 'Rol', 'Estado', 'Correo', 'Creado']}
+                      rows={inspection.staff.map(person => [person.full_name, person.role, person.is_active ? 'Activo' : 'Pausado', person.email || '—', formatDateTime(person.created_at)])}
+                    />
+                  )}
+                  {inspectionTab === 'sales' && (
+                    <div className="space-y-3">
+                      <DataTable
+                        icon={<ReceiptText className="w-4 h-4" />}
+                        title="Comandas y ventas"
+                        empty="No hay comandas registradas."
+                        headers={['Fecha', 'Mesa', 'Mesero', 'Estado', 'Total', 'Pago', 'Ítems']}
+                        rows={inspection.orders.map(order => [
+                          formatDateTime(order.created_at),
+                          order.table_identifier || inspection.tables.find(table => table.id === order.table_id)?.identifier || 'Mesa eliminada',
+                          order.waiter_name || inspection.staff.find(person => person.id === order.staff_id)?.full_name || '—',
+                          order.status,
+                          `${inspection.tenant.currency} ${Number(order.total).toLocaleString()}`,
+                          order.payment_method || '—',
+                          inspection.orderItems.filter(item => item.order_id === order.id).map(item => `${item.quantity}× ${item.name} (${inspection.tenant.currency} ${Number(item.subtotal).toLocaleString()})`).join(', ') || '—',
+                        ])}
+                      />
+                    </div>
+                  )}
+                  <p className="mt-4 text-[11px] text-slate-500">
+                    Consulta de solo lectura. Por seguridad, no se muestran PINs, hashes ni identificadores de autenticación.
+                  </p>
+                </>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      )}
+
     </div>
+  );
+}
+
+function formatDateTime(value: string) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString();
+}
+
+function DetailCard({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-xl border border-slate-800 bg-slate-950/60 p-4">
+      <h3 className="mb-3 text-sm font-semibold text-white">{title}</h3>
+      <div className="space-y-2">{children}</div>
+    </section>
+  );
+}
+
+function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div className="flex items-start justify-between gap-4 text-xs">
+      <span className="text-slate-500">{label}</span>
+      <span className="text-right text-slate-200">{value || '—'}</span>
+    </div>
+  );
+}
+
+function DataTable({
+  icon,
+  title,
+  empty,
+  headers,
+  rows,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  empty: string;
+  headers: string[];
+  rows: Array<Array<string | number>>;
+}) {
+  return (
+    <section className="overflow-hidden rounded-xl border border-slate-800">
+      <div className="flex items-center gap-2 bg-slate-950/70 px-4 py-3 text-sm font-semibold text-white">{icon}{title}</div>
+      {rows.length ? (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-max text-left text-xs text-slate-300">
+            <thead className="bg-slate-950/40 text-[10px] uppercase text-slate-500">
+              <tr>{headers.map(header => <th key={header} className="px-4 py-2.5 font-semibold">{header}</th>)}</tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800/70">
+              {rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="align-top hover:bg-slate-800/30">
+                  {row.map((cell, cellIndex) => <td key={cellIndex} className="max-w-md whitespace-normal px-4 py-3">{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p className="px-4 py-8 text-center text-xs text-slate-500">{empty}</p>}
+    </section>
   );
 }

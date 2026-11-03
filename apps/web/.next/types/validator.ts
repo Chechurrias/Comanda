@@ -128,6 +128,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../src/app/api/admin/tenants/[tenantId]/details/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/admin/tenants/[tenantId]/details">> = Specific
+  const handler = {} as typeof import("../../src/app/api/admin/tenants/[tenantId]/details/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 // Validate ../../src/app/api/auth/bootstrap/route.ts
 {
   type __IsExpected<Specific extends RouteHandlerConfig<"/api/auth/bootstrap">> = Specific

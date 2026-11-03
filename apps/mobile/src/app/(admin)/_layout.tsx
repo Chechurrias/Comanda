@@ -16,6 +16,7 @@ export default function AdminLayout() {
       <Stack.Screen name="menu" options={{ title: 'Platos y Menú' }} />
       <Stack.Screen name="staff" options={{ title: 'Gestión de Meseros' }} />
       <Stack.Screen name="devices" options={{ title: 'Licencia y dispositivos' }} />
+      <Stack.Screen name="customization" options={{ title: 'Configuración del restaurante' }} />
     </Stack>
   );
 }

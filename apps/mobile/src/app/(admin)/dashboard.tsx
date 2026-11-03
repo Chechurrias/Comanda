@@ -1,6 +1,7 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useState } from 'react';
 import {
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -86,11 +87,18 @@ export default function AdminDashboardScreen() {
         <TouchableOpacity 
           style={styles.exitButton}
           onPress={async () => {
-            await authSession.clear();
-            router.replace('/(auth)/pin-login');
+            try {
+              const { error } = await supabase.auth.signOut({ scope: 'local' });
+              if (error) throw error;
+            } catch (error: any) {
+              Alert.alert('Aviso de sesión', error.message || 'No se pudo cerrar completamente la sesión de Supabase.');
+            } finally {
+              await authSession.clear();
+              router.replace('/');
+            }
           }}
         >
-          <Text style={styles.exitText}>Salir a PIN</Text>
+          <Text style={styles.exitText}>Salir</Text>
         </TouchableOpacity>
       </View>
 
@@ -180,22 +188,22 @@ export default function AdminDashboardScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* Licencia y dispositivos registrados en la nube */}
+          {/* Configuración del restaurante */}
           <TouchableOpacity 
             style={styles.menuCard}
             activeOpacity={0.8}
-            onPress={() => router.push('/(admin)/devices')}
+            onPress={() => router.push('/(admin)/customization')}
           >
             <View style={styles.cardIconBox}>
-              <Text style={styles.cardIcon}>☁️</Text>
+              <Text style={styles.cardIcon}>⚙️</Text>
             </View>
-            <Text style={styles.cardTitle}>Licencia y dispositivos</Text>
+            <Text style={styles.cardTitle}>Configuración del restaurante</Text>
             <Text style={styles.cardSubtitle}>
-              Consulta la licencia y los dispositivos autorizados en la nube.
+              Actualiza el nombre y el logotipo de tu negocio.
             </Text>
             <View style={styles.cardFooter}>
-              <Text style={styles.cardCounter}>Administración cloud</Text>
-              <Text style={styles.cardLink}>Consultar ➔</Text>
+              <Text style={styles.cardCounter}>Personalización</Text>
+              <Text style={styles.cardLink}>Configurar ➔</Text>
             </View>
           </TouchableOpacity>
 

@@ -43,12 +43,30 @@ export const cloudDbService = {
     }));
   },
 
-  deleteTable: async (tableId: string) => {
-    const { error } = await supabase
-      .from('restaurant_tables')
-      .delete()
-      .eq('id', tableId);
+  deleteTable: async (tenantId: string, tableId: string) => {
+    const { error } = await supabase.rpc('delete_restaurant_table', {
+      p_tenant_id: tenantId,
+      p_table_id: tableId,
+    });
     if (error) throw error;
+  },
+
+  getRestaurantProfile: async (tenantId: string) => {
+    const { data, error } = await supabase.rpc('get_restaurant_profile', {
+      p_tenant_id: tenantId,
+    });
+    if (error) throw error;
+    return data as { id: string; name: string; logo_url: string | null };
+  },
+
+  updateRestaurantProfile: async (tenantId: string, name: string, logoUrl: string | null) => {
+    const { data, error } = await supabase.rpc('update_restaurant_profile', {
+      p_tenant_id: tenantId,
+      p_name: name.trim(),
+      p_logo_url: logoUrl,
+    });
+    if (error) throw error;
+    return data as { id: string; name: string; logo_url: string | null };
   },
 
   // --- MENÚ ---

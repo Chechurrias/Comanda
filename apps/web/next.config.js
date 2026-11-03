@@ -1,5 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Keep development artifacts separate so production builds cannot corrupt
+  // a running dev server's webpack module/chunk mapping.
+  distDir: process.env.NODE_ENV === 'development' ? '.next-dev' : '.next',
+
   // Mantenemos tus configuraciones originales para ignorar errores
   typescript: {
     ignoreBuildErrors: true,

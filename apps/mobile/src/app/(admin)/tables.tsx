@@ -1,6 +1,6 @@
 import * as Crypto from 'expo-crypto';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,6 +27,7 @@ export default function AdminTablesScreen() {
   const [activeMenu, setActiveMenu] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isCreatingTable, setIsCreatingTable] = useState(false);
+  const isCreatingTableRef = useRef(false);
 
   // Sesión Admin
   const [sessionUser, setSessionUser] = useState<any | null>(null);
@@ -83,11 +84,17 @@ export default function AdminTablesScreen() {
           },
           (payload) => {
             if (payload.eventType === 'INSERT') {
-              setTables((prev) => [...prev, payload.new]);
+              setTables((prev) => prev.some(table => table.id === payload.new.id)
+                ? prev
+                : [...prev, payload.new]);
             } else if (payload.eventType === 'UPDATE') {
-              setTables((prev) =>
-                prev.map((t) => (t.id === payload.new.id ? payload.new : t))
-              );
+              if (payload.new.is_archived) {
+                setTables((prev) => prev.filter((t) => t.id !== payload.new.id));
+              } else {
+                setTables((prev) =>
+                  prev.map((t) => (t.id === payload.new.id ? payload.new : t))
+                );
+              }
               setSelectedTable((prev: any) =>
                 prev && prev.id === payload.new.id ? payload.new : prev
               );
@@ -147,7 +154,8 @@ export default function AdminTablesScreen() {
       Alert.alert('Sesión no disponible', 'Vuelve a iniciar sesión para administrar las mesas.');
       return;
     }
-    if (isCreatingTable) return;
+    if (isCreatingTableRef.current) return;
+    isCreatingTableRef.current = true;
     setIsCreatingTable(true);
     try {
       const assignedZone = selectedZone === 'Todas' ? 'Salón Principal' : selectedZone;
@@ -167,11 +175,12 @@ export default function AdminTablesScreen() {
           : err.message || 'Intenta de nuevo.'
       );
     } finally {
+      isCreatingTableRef.current = false;
       setIsCreatingTable(false);
     }
   };
 
-  // Eliminar mesa de la nube
+  // Elimina la mesa libre y actualiza la sala tras confirmar la operación cloud.
   const handleDeleteTable = (table: any) => {
     if (table.status !== 'available') {
       Alert.alert('Mesa en uso', 'Solo puedes eliminar mesas que estén en estado Libre.');
@@ -180,7 +189,7 @@ export default function AdminTablesScreen() {
 
     Alert.alert(
       'Eliminar Mesa',
-      `¿Deseas eliminar ${table.identifier} de la sala?`,
+      `¿Deseas eliminar ${table.identifier}? También se eliminarán sus pedidos históricos.`,
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -188,9 +197,14 @@ export default function AdminTablesScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await cloudDbService.deleteTable(table.id);
-            } catch {
-              Alert.alert('Error', 'No se pudo eliminar la mesa.');
+              await cloudDbService.deleteTable(sessionUser.tenant_id, table.id);
+              setTables(current => current.filter(item => item.id !== table.id));
+              Alert.alert('Mesa eliminada', `${table.identifier} fue eliminada. Las ventas e informes se conservaron.`);
+            } catch (error: any) {
+              Alert.alert(
+                'No se pudo eliminar la mesa',
+                error.message || 'Verifica que la mesa no tenga una comanda activa.'
+              );
             }
           },
         },
@@ -376,7 +390,7 @@ export default function AdminTablesScreen() {
             const isBill = tbl.status === 'billing';
 
             return (
-              <TouchableOpacity
+              <View
                 key={tbl.id}
                 style={[
                   styles.tableCard,
@@ -384,24 +398,26 @@ export default function AdminTablesScreen() {
                   isOccup && styles.borderOccup,
                   isBill && styles.borderBill,
                 ]}
-                activeOpacity={0.7}
-                onPress={() => handleSelectTable(tbl)}
-                onLongPress={() => handleDeleteTable(tbl)}
-                delayLongPress={500}
               >
-                <View style={styles.cardTop}>
-                  <Text style={styles.tableNum}>{tbl.identifier}</Text>
-                  <View
-                    style={[
-                      styles.dot,
-                      isAvail && styles.dotAvail,
-                      isOccup && styles.dotOccup,
-                      isBill && styles.dotBill,
-                    ]}
-                  />
-                </View>
+                <TouchableOpacity
+                  style={styles.tableCardContent}
+                  activeOpacity={0.7}
+                  onPress={() => handleSelectTable(tbl)}
+                >
+                  <View style={styles.cardTop}>
+                    <Text style={styles.tableNum}>{tbl.identifier}</Text>
+                    <View
+                      style={[
+                        styles.dot,
+                        isAvail && styles.dotAvail,
+                        isOccup && styles.dotOccup,
+                        isBill && styles.dotBill,
+                      ]}
+                    />
+                  </View>
 
-                <Text style={styles.tableZone}>{tbl.zone}</Text>
+                  <Text style={styles.tableZone}>{tbl.zone}</Text>
+                </TouchableOpacity>
 
                 <View style={styles.cardBottom}>
                   <Text
@@ -414,13 +430,28 @@ export default function AdminTablesScreen() {
                   >
                     {isAvail ? 'Libre' : isOccup ? 'Ocupada' : 'Por Cobrar'}
                   </Text>
+                  {isAvail && (
+                    <TouchableOpacity
+                      onPress={() => handleDeleteTable(tbl)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Quitar ${tbl.identifier}`}
+                      hitSlop={8}
+                    >
+                      <Text style={styles.removeTableText}>Eliminar</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-              </TouchableOpacity>
+              </View>
             );
           })}
 
           {/* Tarjeta Transparente interactiva para crear mesa */}
-          <TouchableOpacity style={styles.addCardTransparent} activeOpacity={0.6} onPress={handleCreateTable}>
+          <TouchableOpacity
+            style={styles.addCardTransparent}
+            activeOpacity={0.6}
+            onPress={() => void handleCreateTable()}
+            disabled={isCreatingTable}
+          >
             <Text style={styles.addCardPlus}>+</Text>
             <Text style={styles.addCardLabel}>Mesa {nextTableNumber}</Text>
             <Text style={styles.addCardSub}>Tocar para crear</Text>
@@ -587,6 +618,7 @@ const styles = StyleSheet.create({
 
   tablesGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingBottom: 20 },
   tableCard: { width: '31%', backgroundColor: '#0f172a', borderRadius: 14, padding: 12, borderWidth: 1.5, minHeight: 100, justifyContent: 'space-between' },
+  tableCardContent: { flex: 1 },
   borderAvail: { borderColor: '#10b98140' },
   borderOccup: { borderColor: '#6366f180', backgroundColor: '#1e1b4b30' },
   borderBill: { borderColor: '#f59e0b80', backgroundColor: '#451a0330' },
@@ -597,8 +629,9 @@ const styles = StyleSheet.create({
   dotAvail: { backgroundColor: '#10b981' },
   dotOccup: { backgroundColor: '#6366f1' },
   dotBill: { backgroundColor: '#f59e0b' },
-  cardBottom: { marginTop: 6 },
+  cardBottom: { marginTop: 6, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   statusLabel: { fontSize: 10, fontWeight: 'bold' },
+  removeTableText: { color: '#f87171', fontSize: 10, fontWeight: 'bold' },
 
   addCardTransparent: {
     width: '31%',

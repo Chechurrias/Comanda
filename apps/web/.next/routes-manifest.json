@@ -18,7 +18,16 @@
     "afterFiles": [],
     "fallback": []
   },
-  "dynamicRoutes": [],
+  "dynamicRoutes": [
+    {
+      "page": "/api/admin/tenants/[tenantId]/details",
+      "regex": "^/api/admin/tenants/([^/]+?)/details(?:/)?$",
+      "routeKeys": {
+        "nxtPtenantId": "nxtPtenantId"
+      },
+      "namedRegex": "^/api/admin/tenants/(?<nxtPtenantId>[^/]+?)/details(?:/)?$"
+    }
+  ],
   "staticRoutes": [
     {
       "page": "/",
