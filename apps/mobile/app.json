@@ -4,7 +4,7 @@
     "slug": "Comanda",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/icon-from-jpg.png",
     "scheme": "comanda",
     "userInterfaceStyle": "automatic",
     "android": {
@@ -12,13 +12,11 @@
       "versionCode": 1,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/icon-from-jpg.png"
       },
+      "permissions": ["REQUEST_INSTALL_PACKAGES"],
       "predictiveBackGestureEnabled": false
     },
-    "jsEngine": "hermes",
     "plugins": [
       "expo-router",
       "expo-secure-store",

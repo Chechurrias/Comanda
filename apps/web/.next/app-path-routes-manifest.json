@@ -1,15 +1,15 @@
 {
   "/_not-found/page": "/_not-found",
   "/api/auth/session/route": "/api/auth/session",
-  "/api/auth/bootstrap/route": "/api/auth/bootstrap",
   "/api/admin/activate-tenant/route": "/api/admin/activate-tenant",
+  "/api/auth/bootstrap/route": "/api/auth/bootstrap",
   "/api/admin/operators/route": "/api/admin/operators",
   "/api/admin/tenants/[tenantId]/details/route": "/api/admin/tenants/[tenantId]/details",
-  "/page": "/",
   "/Confirm/page": "/Confirm",
-  "/setup/page": "/setup",
+  "/page": "/",
   "/login/page": "/login",
   "/change-password/page": "/change-password",
+  "/setup/page": "/setup",
   "/(admin)/operators/page": "/operators",
   "/(admin)/tenants/page": "/tenants"
 }

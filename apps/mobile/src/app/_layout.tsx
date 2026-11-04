@@ -1,5 +1,6 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { AppUpdatePrompt } from '../components/app-update-prompt';
 
 export default function RootLayout() {
   return (
@@ -11,6 +12,7 @@ export default function RootLayout() {
         <Stack.Screen name="(admin)" />
         <Stack.Screen name="(waiter)" />
       </Stack>
+      <AppUpdatePrompt />
     </>
   );
 }

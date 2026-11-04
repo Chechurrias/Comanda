@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import {
   Armchair,
   ArrowDownToLine,
@@ -167,13 +168,17 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen scroll-smooth overflow-hidden bg-[#0A0A0A] text-[#F4F1EA]">
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0A0A0A]/90 backdrop-blur-xl">
+      <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#0A0A0A]/95 shadow-lg shadow-black/20 backdrop-blur-xl">
         <nav aria-label="Navegación principal" className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-8">
-          <a href="#inicio" className="flex items-center gap-2 font-serif text-lg font-bold text-[#F4F1EA]">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-amber-500 text-neutral-950">
-              <Utensils className="h-4 w-4" />
-            </span>
-            Comanda Cloud
+          <a href="#inicio" aria-label="Comanda Cloud, ir al inicio" className="flex shrink-0 items-center">
+            <Image
+              src="/images/LogoComanda.jpg"
+              alt="Comanda Cloud"
+              width={260}
+              height={85}
+              priority
+              className="h-10 w-auto object-contain sm:h-12"
+            />
           </a>
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-xs font-medium text-neutral-300 sm:text-sm">
             <a className="transition-colors hover:text-amber-300" href="#inicio">Inicio</a>
@@ -190,7 +195,7 @@ export default function LandingPage() {
       {/* SECCIÓN INICIO / HERO */}
       <section
         id="inicio"
-        className="relative z-10 mx-auto grid max-w-7xl items-center gap-14 px-5 pb-24 pt-12 sm:px-8 md:grid-cols-[1.05fr_0.95fr] md:pb-32 md:pt-20 bg-cover bg-center"
+        className="relative z-10 mx-auto grid max-w-7xl items-center gap-14 px-5 pb-24 pt-28 sm:px-8 sm:pt-32 md:grid-cols-[1.05fr_0.95fr] md:pb-32 md:pt-36 bg-cover bg-center"
         style={{
           backgroundImage: `linear-gradient(to bottom, rgba(10, 10, 10, 0.44), rgba(10, 10, 10, 0.48)), url('/images/ImageTableAlone.jpg')`
         }}
@@ -246,8 +251,8 @@ export default function LandingPage() {
           <div className="relative rounded-[2rem] border border-white/15 bg-[#121212]/90 backdrop-blur-2xl p-6 shadow-2xl shadow-black/80">
             <div className="flex items-center justify-between border-b border-white/10 pb-4">
               <div>
-                <p className="text-xs font-medium text-neutral-400">Tu Restaurante</p>
-                <p className="mt-1 font-bold text-[#F4F1EA]">Paso a Paso para usar comanda cloud</p>
+                <p className="text-xs font-medium text-neutral-400">Comanda Cloud</p>
+                <p className="mt-1 font-bold text-[#F4F1EA]"> En solo 4 Pasos</p>
               </div>
               <span className="rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 text-[11px] font-semibold text-amber-400 animate-pulse">
                 Paso {activeStep + 1} de 4
