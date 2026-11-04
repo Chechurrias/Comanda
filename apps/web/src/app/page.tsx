@@ -1,6 +1,5 @@
 'use client';
 
-import Image from 'next/image';
 import {
   Armchair,
   ArrowDownToLine,
@@ -17,12 +16,13 @@ import {
   Wifi,
   Zap
 } from 'lucide-react';
+import Image from 'next/image';
 import { useEffect, useState } from 'react';
 import OrderFlowDemo from './OrderFlowDemo';
 import ScrollReveal from './ScrollReveal';
 
 const EXPO_BUILD_PAGE_URL =
-  'https://expo.dev/accounts/chechordguez/projects/Comanda/builds/7b2fe109-7d17-48c9-b762-f91a04a4bfb0';
+  'https://expo.dev/accounts/chechordguez/projects/Comanda/builds/9d5cdade-74fd-4312-a5fc-e83d65a3a069';
 
 function getAndroidApkUrl(): string | null {
   const configuredUrl = process.env.NEXT_PUBLIC_ANDROID_APK_URL?.trim();
